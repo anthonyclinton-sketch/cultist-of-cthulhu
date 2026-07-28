@@ -118,7 +118,13 @@ public sealed partial class PlayerController : CharacterBody2D
 
         _timeSinceLastKill += dt;
         if (_timeSinceLastKill > ChainWindow) _chainStep = 0;
-        Trauma = Mathf.Max(0f, Trauma - dt * 1.8f);
+
+        // Trauma decays in REAL time. Decaying it by the scaled delta meant screen shake
+        // persisted 20x longer through a hit stop, so the two effects compounded into what
+        // looked like the game hanging and juddering rather than punching.
+        float unscaled = dt / Mathf.Max(0.01f, (float)Engine.TimeScale);
+        Trauma = Mathf.Max(0f, Trauma - unscaled * 2.6f);
+
         TickMotes(dt);
 
         UpdateAim();
@@ -630,9 +636,10 @@ public sealed partial class PlayerController : CharacterBody2D
         LastKillWasChained = _chainStep > 0;
         LastKillDuringIFrames = duringIFrames;
 
-        // docs/02 §8 — a freeze at the death frame, scaled by how many died.
-        PendingHitStop = 0.04f * kills;
-        AddTrauma(0.22f + 0.06f * kills);
+        // docs/02 §8 — a freeze at the death frame. Sub-linear in kill count: summing
+        // linearly turned a pack clear into a visible hang.
+        PendingHitStop = HitStop.ForKills(kills);
+        AddTrauma(0.16f + 0.03f * kills);
     }
 
     private const float ChainWindow = 1.5f;
@@ -681,8 +688,8 @@ public sealed partial class PlayerController : CharacterBody2D
     {
         HitsTaken++;
         _damageIFrames = 1.0f;
-        PendingHitStop = 0.09f;
-        AddTrauma(0.45f);
+        PendingHitStop = HitStop.PlayerDamaged;
+        AddTrauma(0.4f);
 
         // ARMOUR (docs/02 §2): absorbs one hit of any size, consumed entirely.
         //

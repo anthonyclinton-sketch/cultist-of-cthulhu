@@ -45,7 +45,7 @@ public sealed partial class CombatArena : Node2D
     private int _roomIndex;
     private bool _roomActive;
     private float _interRoomTimer;
-    private float _hitStopTimer;
+    private readonly HitStop _hitStop = new();
 
     public override void _Ready()
     {
@@ -305,17 +305,11 @@ public sealed partial class CombatArena : Node2D
 
         if (_camera is not null) _camera.Offset = _player.ShakeOffset(_rng);
 
-        // docs/02 §8 — hit stop. Owned here because the arena owns the time scale.
-        if (_player.PendingHitStop > 0f) _hitStopTimer = _player.PendingHitStop;
-        if (_hitStopTimer > 0f)
-        {
-            _hitStopTimer -= dt;
-            Engine.TimeScale = 0.12f;
-        }
-        else
-        {
-            Engine.TimeScale = 1f;
-        }
+        // docs/02 §8 — hit stop, counted in REAL time by the shared helper. Counting it
+        // down with the scaled delta made it last 1/TimeScale too long, which read as the
+        // game freezing rather than punching.
+        if (_player.PendingHitStop > 0f) _hitStop.Request(_player.PendingHitStop);
+        _hitStop.Apply();
 
         if (_roomActive && _enemies.AliveCount == 0) EndRoom();
         else if (!_roomActive)

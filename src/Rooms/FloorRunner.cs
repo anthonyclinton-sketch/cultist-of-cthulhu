@@ -48,7 +48,7 @@ public sealed partial class FloorRunner : Node2D
     private int _currentRoom = -1;
     private int _pendingSealRoom = -1;
     private bool _encounterActive;
-    private float _hitStopTimer;
+    private readonly HitStop _hitStop = new();
     private int _roomsCleared;
 
     public override void _Ready()
@@ -203,14 +203,8 @@ public sealed partial class FloorRunner : Node2D
     {
         float dt = (float)delta;
 
-        if (_hitStopTimer > 0f)
-        {
-            _hitStopTimer -= dt;
-            Engine.TimeScale = 0.05f;
-        }
-        else Engine.TimeScale = 1f;
-
-        if (_player.PendingHitStop > 0f) _hitStopTimer = _player.PendingHitStop;
+        if (_player.PendingHitStop > 0f) _hitStop.Request(_player.PendingHitStop);
+        _hitStop.Apply();
 
         TrackRoom();
         UpdatePendingSeal();
@@ -443,6 +437,10 @@ public sealed partial class FloorRunner : Node2D
     }
 
     // ---------------------------------------------------------------- Draw
+
+    /// <summary>Engine.TimeScale is global state. Leaving a scene mid-hit-stop would
+    /// otherwise strand the whole game at 0.05x.</summary>
+    public override void _ExitTree() => _hitStop.Clear();
 
     public override void _Draw()
     {
