@@ -171,13 +171,16 @@ public sealed partial class CombatArena : Node2D
         _player.GiveWeapon(data);
     }
 
+    private Camera2D? _camera;
+
     private void BuildCameraAndUi()
     {
-        AddChild(new Camera2D
+        _camera = new Camera2D
         {
             Enabled = true,
             ProcessCallback = Camera2D.Camera2DProcessCallback.Physics,
-        });
+        };
+        AddChild(_camera);
 
         var layer = new CanvasLayer { Name = "UI" };
         _hud = new Hud { Name = nameof(Hud), Player = _player };
@@ -285,7 +288,15 @@ public sealed partial class CombatArena : Node2D
 
         _player.Sanity.InCombat = _roomActive && _enemies.AliveCount > 0;
         _enemies.PlayerAscended = _player.Ascension.IsAscended;
+
+        // The ladder's headline effect, finally reaching the arena (docs/02 §3.4). Until
+        // this line existed, metric 9 measured whether players REACH Fraying while nothing
+        // observable happened when they got there.
+        _enemies.HallucinationRatio = _player.Sanity.HallucinationRatio;
+
         _telemetry.Tick(dt, _player.Sanity);
+
+        if (_camera is not null) _camera.Offset = _player.ShakeOffset(_rng);
 
         // docs/02 §8 — hit stop. Owned here because the arena owns the time scale.
         if (_player.PendingHitStop > 0f) _hitStopTimer = _player.PendingHitStop;
@@ -383,6 +394,28 @@ public sealed partial class CombatArena : Node2D
                 new Color(1f, 1f, 1f, alpha * 0.5f), 1.5f);
     }
 
+    /// <summary>
+    /// docs/02 §8: "every kill spawns a small light that visibly flies into the player's
+    /// sanity ring. This makes the 'kill to fund yourself' loop viscerally legible without
+    /// any UI text."
+    ///
+    /// Empowered motes (killed during i-frames, worth double) are drawn hotter and larger,
+    /// so the x2 is something the player SEES rather than something they read about.
+    /// </summary>
+    private void DrawSanityMotes()
+    {
+        for (int i = 0; i < _player.MoteCount; i++)
+        {
+            PlayerController.Mote m = _player.GetMote(i);
+            float a = Mathf.Clamp(m.Life, 0f, 1f);
+            float r = m.Empowered ? 4.5f : 3f;
+            Color c = m.Empowered ? new Color(1f, 0.85f, 0.45f, a) : new Color(0.5f, 0.88f, 0.83f, a);
+
+            DrawCircle(m.Position, r, c);
+            DrawCircle(m.Position, r * 2.2f, c with { A = a * 0.22f });
+        }
+    }
+
     private void HandleDebugKeys()
     {
         if (Input.IsKeyPressed(Key.F5))
@@ -410,6 +443,7 @@ public sealed partial class CombatArena : Node2D
     public override void _Draw()
     {
         DrawBanishPulse();
+        DrawSanityMotes();
 
         foreach (Enemy e in _enemies.Enemies)
         {
@@ -435,6 +469,23 @@ public sealed partial class CombatArena : Node2D
             DrawString(ThemeDB.FallbackFont, e.Position + new Vector2(-4, -e.Data.BodyRadius - 4),
                        e.Data.Role.ToString()[..1], HorizontalAlignment.Left, -1, 8,
                        new Color(1, 1, 1, 0.65f));
+
+            // Weak point — always live, VISIBLE only at Fraying and below (docs/02 §3.4).
+            // That distinction is the ladder's payoff: the low band gives you information,
+            // not damage, and the information is worth something only if you can use it.
+            if (_player.Sanity.WeakPointsVisible)
+            {
+                float pulse = 0.55f + 0.45f * Mathf.Sin(_telemetry.SessionDuration * 6f + e.Id);
+                DrawCircle(e.WeakPointPosition, e.WeakPointRadius, new Color(1f, 0.9f, 0.35f, pulse));
+                DrawArc(e.WeakPointPosition, e.WeakPointRadius + 1.5f, 0, Mathf.Tau, 10,
+                        new Color(1f, 1f, 1f, pulse * 0.8f), 1f);
+            }
+
+            if (e.IsMarked)
+            {
+                DrawArc(e.Position, e.Data.BodyRadius + 5f, 0, Mathf.Tau, 14,
+                        new Color(1f, 0.45f, 0.2f, 0.8f), 2f);
+            }
 
             if (e.State == EnemyState.Telegraph)
             {

@@ -95,6 +95,11 @@ public sealed partial class PlayerController : CharacterBody2D
         if (_banishCooldown > 0f) _banishCooldown -= dt;
         if (BanishPulse > 0f) BanishPulse = Mathf.Max(0f, BanishPulse - dt * 3.5f);
 
+        _timeSinceLastKill += dt;
+        if (_timeSinceLastKill > ChainWindow) _chainStep = 0;
+        Trauma = Mathf.Max(0f, Trauma - dt * 1.8f);
+        TickMotes(dt);
+
         UpdateAim();
 
         // Ascension trigger is polled, not signalled from the damage path. Sanity can
@@ -127,6 +132,77 @@ public sealed partial class PlayerController : CharacterBody2D
         PublishToBulletManagers();
         ConsumeIncomingHits();
         ConsumeContactDamage();
+    }
+
+    // ---------------------------------------------------------------- Feel (docs/02 §8)
+
+    /// <summary>
+    /// Sanity motes. docs/02 §8 calls these "important", and it is right: the entire
+    /// economy rests on "kills fund your reloads", and without a mote flying from the
+    /// corpse into the ring that relationship is invisible. The player sees a number
+    /// change, not a loop.
+    /// </summary>
+    public struct Mote
+    {
+        public Vector2 Position;
+        public Vector2 Velocity;
+        public float Life;
+        public bool Empowered;   // killed during i-frames — the x2
+    }
+
+    private const int MaxMotes = 64;
+    private readonly Mote[] _motes = new Mote[MaxMotes];
+    private int _moteCount;
+
+    public int MoteCount => _moteCount;
+    public Mote GetMote(int i) => _motes[i];
+
+    private void SpawnSanityMote(Vector2 from, bool empowered)
+    {
+        if (_moteCount >= MaxMotes) return;
+        _motes[_moteCount++] = new Mote
+        {
+            Position = from,
+            Velocity = new Vector2(_rng.Range(-40f, 40f), _rng.Range(-70f, -20f)),
+            Life = 1f,
+            Empowered = empowered,
+        };
+    }
+
+    private void TickMotes(float dt)
+    {
+        int i = 0;
+        while (i < _moteCount)
+        {
+            ref Mote m = ref _motes[i];
+            m.Life -= dt * 1.6f;
+
+            // Accelerate toward the player, so it visibly homes into the sanity ring.
+            Vector2 toPlayer = (GlobalPosition - m.Position).Normalized();
+            m.Velocity = m.Velocity.Lerp(toPlayer * 420f, 1f - Mathf.Pow(0.02f, dt));
+            m.Position += m.Velocity * dt;
+
+            if (m.Life <= 0f || m.Position.DistanceSquaredTo(GlobalPosition) < 100f)
+            {
+                _motes[i] = _motes[--_moteCount];
+                continue;
+            }
+            i++;
+        }
+    }
+
+    /// <summary>Trauma-based screen shake (docs/02 §8): shake scales with trauma², so
+    /// small events barely register and big ones land. Cap 6px, fully disableable.</summary>
+    public float Trauma { get; private set; }
+    public bool ScreenShakeEnabled { get; set; } = true;
+
+    public void AddTrauma(float amount) => Trauma = Mathf.Min(1f, Trauma + amount);
+
+    public Vector2 ShakeOffset(Rng rng)
+    {
+        if (!ScreenShakeEnabled || Trauma <= 0f) return Vector2.Zero;
+        float magnitude = Trauma * Trauma * 6f;
+        return new Vector2(rng.Range(-1f, 1f), rng.Range(-1f, 1f)) * magnitude;
     }
 
     // ---------------------------------------------------------------- Ascension (docs/02 §6)
@@ -309,6 +385,12 @@ public sealed partial class PlayerController : CharacterBody2D
         {
             Phase = BlinkPhase.Invulnerable;
             Velocity = _blinkVelocity;
+
+            // docs/02 §4 — dashing THROUGH an enemy Marks it (+25% damage taken, 0.3s).
+            // Post-F4 this and the i-frame kill bonus are the only things that reward
+            // dodging aggressively rather than away, so they carry the skill expression
+            // the Sanity cost used to.
+            Enemies?.MarkOverlapping(GlobalPosition, Tune.PlayerHitboxRadius);
         }
         else if (_blinkFrame <= Tune.BlinkTotalFrames)
         {
@@ -429,19 +511,66 @@ public sealed partial class PlayerController : CharacterBody2D
 
     // ---------------------------------------------------------------- Damage & rewards
 
+    /// <summary>
+    /// Per-kill Sanity, with the two multipliers from docs/02 §3.3 that were specified
+    /// and never implemented:
+    ///
+    ///   CHAIN — +2 per consecutive kill within 1.5s, capped at +10. Rewards momentum.
+    ///   I-FRAMES — x2 for a kill landed during a Blink Step. "The high-skill line:
+    ///   dodge *through* the enemy and kill it."
+    ///
+    /// Post-F4 these matter more than when they were written. The dodge is free, so this
+    /// is the only remaining mechanical reason to dodge AGGRESSIVELY rather than away —
+    /// and it is the main way an aggressive player funds reloads.
+    /// </summary>
     private void CollectKillRewards()
     {
-        if (Enemies is null || Enemies.PendingSanityReward <= 0f) return;
+        if (Enemies is null) return;
 
-        float reward = Enemies.PendingSanityReward;
-        Sanity.GainFromKill(reward);
-        Telemetry?.NoteSanityIncome(reward);
+        int kills = Enemies.KillsThisTick;
+        if (kills <= 0) return;
 
-        for (int i = 0; i < Enemies.KillsThisTick; i++) Telemetry?.NoteKill();
+        bool duringIFrames = Phase == BlinkPhase.Invulnerable;
+        float total = 0f;
 
-        // docs/02 §8 — a 0.15s freeze at the death frame, scaled by how many died.
-        if (Enemies.KillsThisTick > 0) PendingHitStop = 0.04f * Enemies.KillsThisTick;
+        for (int i = 0; i < kills; i++)
+        {
+            float value = Enemies.GetKillValue(i);
+
+            // Chain: consecutive kills inside the window escalate.
+            if (_timeSinceLastKill <= ChainWindow) _chainStep++;
+            else _chainStep = 0;
+            _timeSinceLastKill = 0f;
+
+            value += Mathf.Min(_chainStep * ChainBonusPerStep, ChainBonusCap);
+            if (duringIFrames) value *= 2f;
+
+            total += value;
+            SpawnSanityMote(Enemies.GetKillPosition(i), duringIFrames);
+            Telemetry?.NoteKill();
+        }
+
+        Sanity.GainFromKill(total);
+        Telemetry?.NoteSanityIncome(total);
+
+        LastKillWasChained = _chainStep > 0;
+        LastKillDuringIFrames = duringIFrames;
+
+        // docs/02 §8 — a freeze at the death frame, scaled by how many died.
+        PendingHitStop = 0.04f * kills;
+        AddTrauma(0.22f + 0.06f * kills);
     }
+
+    private const float ChainWindow = 1.5f;
+    private const float ChainBonusPerStep = 2f;
+    private const float ChainBonusCap = 10f;
+
+    private float _timeSinceLastKill = 99f;
+    private int _chainStep;
+
+    public int ChainStep => _chainStep;
+    public bool LastKillWasChained { get; private set; }
+    public bool LastKillDuringIFrames { get; private set; }
 
     private void PublishToBulletManagers()
     {

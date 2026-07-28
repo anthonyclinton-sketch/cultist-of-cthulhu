@@ -140,7 +140,12 @@ public sealed partial class DebugOverlay : CanvasLayer
             $"{(s.CanAfford(Tune.SanityBanishCost) ? "READY" : "UNAFFORDABLE")}" +
             $"{(_player.BanishCooldownRemaining > 0f ? $"  cd {_player.BanishCooldownRemaining:F1}s" : "")}" +
             $"   last: {_player.BulletsCleared} bullets, {_player.EnemiesStunned} stunned\n" +
+            $"ladder       hallucinations {s.HallucinationRatio * 100:F0}%   " +
+            $"weak points {(s.WeakPointsVisible ? "VISIBLE" : "hidden")}   " +
+            $"secrets {(s.SecretsOnMinimap ? "shown" : "hidden")}\n" +
+            $"chain        step {_player.ChainStep} (+{Mathf.Min(_player.ChainStep * 2, 10)} sanity)   " +
+            $"last kill {(_player.LastKillDuringIFrames ? "x2 IN I-FRAMES" : "normal")}\n" +
             $"hits taken   {_player.HitsTaken}   denied sustain {_player.DeniedSustainCount}   " +
-            $"corruption {_player.Corruption:F2}";
+            $"corruption {_player.Corruption:F2}   trauma {_player.Trauma:F2}";
     }
 }

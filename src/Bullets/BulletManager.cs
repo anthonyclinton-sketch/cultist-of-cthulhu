@@ -142,6 +142,10 @@ public sealed partial class BulletManager : Node2D
     private const int MaxHitsPerTick = 256;
     private readonly int[] _hitIds = new int[MaxHitsPerTick];
     private readonly float[] _hitDamage = new float[MaxHitsPerTick];
+    // Impact position, so the enemy manager can test the hit against a weak point
+    // (docs/02 §3.4). Without it, sub-hitbox resolution is impossible.
+    private readonly float[] _hitX = new float[MaxHitsPerTick];
+    private readonly float[] _hitY = new float[MaxHitsPerTick];
     private int _hitCount;
 
     public void BeginTargetRegistration() => _tgtCount = 0;
@@ -161,6 +165,7 @@ public sealed partial class BulletManager : Node2D
     public int EnemyHitCount => _hitCount;
     public int GetHitId(int i) => _hitIds[i];
     public float GetHitDamage(int i) => _hitDamage[i];
+    public Vector2 GetHitPosition(int i) => new(_hitX[i], _hitY[i]);
 
     public int Count => _count;
     public int Capacity => Cap;
@@ -377,6 +382,8 @@ public sealed partial class BulletManager : Node2D
                     {
                         _hitIds[_hitCount] = _tgtId[t];
                         _hitDamage[_hitCount] = _damage[i];
+                        _hitX[_hitCount] = x;
+                        _hitY[_hitCount] = y;
                         _hitCount++;
                     }
                     if ((flags & (int)BulletFlags.Piercing) == 0) { dead = true; break; }

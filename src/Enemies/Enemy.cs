@@ -35,6 +35,7 @@ public sealed class Enemy
     private float _stateTimer;
     private float _attackCooldown;
     private Vector2 _repositionTarget;
+    private float _weakPointAngle;
 
     public Enemy(int id, EnemyData data, Vector2 position, BulletManager enemyBullets, Rng rng)
     {
@@ -58,9 +59,45 @@ public sealed class Enemy
     /// <summary>Set while the player is Ascended (docs/02 §6). Enemies break off and flee.</summary>
     public bool Ascended;
 
+    /// <summary>Pushed down from the manager each tick, sourced from the player's Sanity
+    /// band. See PatternPlayer.HallucinationRatio.</summary>
+    public float HallucinationRatio
+    {
+        get => _pattern.HallucinationRatio;
+        set => _pattern.HallucinationRatio = value;
+    }
+
     /// <summary>Banish stun (docs/02 §5.2). Cancels a wind-up in progress.</summary>
     public float StunRemaining { get; private set; }
     public bool IsStunned => StunRemaining > 0f;
+
+    /// <summary>
+    /// docs/02 §3.4 — weak point. Orbits the body slowly so it cannot be held in a fixed
+    /// screen position; the player has to track it.
+    ///
+    /// It is ALWAYS live, and only *visible* at Fraying and below. That distinction is
+    /// deliberate: the low band's payoff is then genuinely informational rather than a
+    /// hidden damage buff, and a lucky blind hit still rewards you. Making it inert above
+    /// Fraying would turn the ladder back into the flat damage bonus that Fable's review
+    /// removed.
+    /// </summary>
+    public Vector2 WeakPointOffset { get; private set; }
+    public const float WeakPointRadiusFraction = 0.45f;
+    public const float WeakPointDamageBonus = 1.5f;
+
+    /// <summary>docs/02 §4 — dashing through an enemy Marks it: +25% damage taken, 0.3s.</summary>
+    public float MarkedRemaining { get; private set; }
+    public bool IsMarked => MarkedRemaining > 0f;
+    public const float MarkedDamageMultiplier = 1.25f;
+    public const float MarkedDuration = 0.3f;
+
+    public void ApplyMark() => MarkedRemaining = MarkedDuration;
+
+    /// <summary>World position of the weak point.</summary>
+    public Vector2 WeakPointPosition => Position + WeakPointOffset;
+
+    /// <summary>Radius within which a hit counts as a weak-point hit.</summary>
+    public float WeakPointRadius => Data.BodyRadius * WeakPointRadiusFraction;
 
     /// <summary>
     /// Stun and shove. Cancelling the pattern matters more than the stun duration: the
@@ -84,7 +121,14 @@ public sealed class Enemy
 
         if (HitFlash > 0f) HitFlash -= dt;
         if (_attackCooldown > 0f) _attackCooldown -= dt;
+        if (MarkedRemaining > 0f) MarkedRemaining -= dt;
         _stateTimer += dt;
+
+        // Weak point orbits. Seeded by Id so enemies of the same type are out of phase and
+        // the room does not pulse in unison.
+        _weakPointAngle += dt * 1.15f;
+        float wpr = Data.BodyRadius * 0.5f;
+        WeakPointOffset = new Vector2(Mathf.Cos(_weakPointAngle + Id), Mathf.Sin(_weakPointAngle + Id)) * wpr;
 
         if (StunRemaining > 0f)
         {

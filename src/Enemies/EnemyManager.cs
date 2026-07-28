@@ -37,6 +37,9 @@ public sealed partial class EnemyManager : Node2D
     /// just the player's stats.</summary>
     public bool PlayerAscended;
 
+    /// <summary>Driven from the player's Sanity band each tick (docs/02 §3.4).</summary>
+    public float HallucinationRatio;
+
     public int AliveCount { get; private set; }
     public int KilledThisRoom { get; private set; }
 
@@ -46,6 +49,35 @@ public sealed partial class EnemyManager : Node2D
 
     /// <summary>Enemies killed this tick, for hit-stop and mote spawning.</summary>
     public int KillsThisTick { get; private set; }
+
+    private const int MaxKillsPerTick = 32;
+    private readonly float[] _killValues = new float[MaxKillsPerTick];
+    private readonly Vector2[] _killPositions = new Vector2[MaxKillsPerTick];
+
+    /// <summary>Base Sanity value of the i-th kill this tick, before chain and i-frame
+    /// multipliers — which the player applies, because only the player knows its own
+    /// dash state and kill timing.</summary>
+    public float GetKillValue(int i) => _killValues[Mathf.Min(i, MaxKillsPerTick - 1)];
+    public Vector2 GetKillPosition(int i) => _killPositions[Mathf.Min(i, MaxKillsPerTick - 1)];
+
+    /// <summary>Weak-point hits this tick, for feedback and telemetry.</summary>
+    public int WeakPointHitsThisTick { get; private set; }
+
+    /// <summary>Mark every enemy overlapping a point — the dash-through (docs/02 §4).</summary>
+    public int MarkOverlapping(Vector2 position, float radius)
+    {
+        int marked = 0;
+        for (int i = 0; i < _enemies.Count; i++)
+        {
+            Enemy e = _enemies[i];
+            if (!e.Alive || e.IsMarked) continue;
+            float rr = radius + e.Data.BodyRadius;
+            if (e.Position.DistanceSquaredTo(position) > rr * rr) continue;
+            e.ApplyMark();
+            marked++;
+        }
+        return marked;
+    }
 
     public IReadOnlyList<Enemy> Enemies => _enemies;
 
@@ -83,6 +115,7 @@ public sealed partial class EnemyManager : Node2D
         float dt = (float)delta;
         PendingSanityReward = 0f;
         KillsThisTick = 0;
+        WeakPointHitsThisTick = 0;
 
         // Repath ~10x/sec. The player moves ~1.5px per tick against a 24px cell, so a
         // field refreshed every 6 ticks is indistinguishable from one refreshed every tick.
@@ -102,6 +135,7 @@ public sealed partial class EnemyManager : Node2D
             Enemy e = _enemies[i];
             if (!e.Alive) continue;
             e.Ascended = PlayerAscended;
+            e.HallucinationRatio = HallucinationRatio;
             e.Tick(dt, PlayerPosition, PlayerVelocity, _field);
             AliveCount++;
         }
@@ -154,22 +188,44 @@ public sealed partial class EnemyManager : Node2D
         {
             int id = _playerBullets.GetHitId(h);
             float dmg = _playerBullets.GetHitDamage(h);
+            Vector2 at = _playerBullets.GetHitPosition(h);
 
             for (int i = 0; i < _enemies.Count; i++)
             {
                 Enemy e = _enemies[i];
                 if (e.Id != id || !e.Alive) continue;
 
-                if (e.TakeDamage(dmg))
+                // Weak point (docs/02 §3.4) — always live, only VISIBLE below Fraying.
+                bool weakPoint = at.DistanceSquaredTo(e.WeakPointPosition)
+                                 <= e.WeakPointRadius * e.WeakPointRadius;
+                if (weakPoint)
                 {
-                    // Post-F4 this is what funds the player's next reload (docs/02 §3.3).
-                    PendingSanityReward += e.Data.SanityValue;
-                    KilledThisRoom++;
-                    KillsThisTick++;
+                    dmg *= Enemy.WeakPointDamageBonus;
+                    WeakPointHitsThisTick++;
                 }
+
+                // Marked (docs/02 §4) — you dashed through it.
+                if (e.IsMarked) dmg *= Enemy.MarkedDamageMultiplier;
+
+                if (e.TakeDamage(dmg)) RecordKill(e);
                 break;
             }
         }
+    }
+
+    private void RecordKill(Enemy e)
+    {
+        // Post-F4 kill Sanity is what funds the player's next reload (docs/02 §3.3).
+        // Values are recorded PER KILL rather than summed, because the chain bonus and
+        // the i-frame multiplier are applied per kill by the player.
+        if (KillsThisTick < MaxKillsPerTick)
+        {
+            _killValues[KillsThisTick] = e.Data.SanityValue;
+            _killPositions[KillsThisTick] = e.Position;
+        }
+        PendingSanityReward += e.Data.SanityValue;
+        KilledThisRoom++;
+        KillsThisTick++;
     }
 
     /// <summary>
@@ -220,11 +276,17 @@ public sealed partial class EnemyManager : Node2D
             if (!_enemies[i].Alive) _enemies.RemoveAt(i);
     }
 
-    /// <summary>Melee resolution (docs/03 §2 Family V). Returns enemies struck.</summary>
+    /// <summary>
+    /// Melee resolution (docs/03 §2 Family V). Returns enemies struck.
+    ///
+    /// Kill Sanity is NOT returned here — it goes through PendingSanityReward like every
+    /// other kill. Returning it separately double-counted melee kills once RecordKill
+    /// existed, and worse, it routed melee around the chain and i-frame multipliers, so a
+    /// melee player silently got a different economy from a gun player.
+    /// </summary>
     public int ResolveMeleeArc(Vector2 origin, Vector2 facing, float reach, float arcDegrees,
-                               float damage, float knockback, out float sanityGained)
+                               float damage, float knockback)
     {
-        sanityGained = 0f;
         int struck = 0;
         float halfArc = Mathf.DegToRad(arcDegrees) * 0.5f;
         float facingAngle = Mathf.Atan2(facing.Y, facing.X);
@@ -246,12 +308,9 @@ public sealed partial class EnemyManager : Node2D
             // hugging one — the fix for the contact-damage finding in docs/03 §2.
             e.ApplyKnockback(delta.Normalized() * knockback);
 
-            if (e.TakeDamage(damage))
-            {
-                sanityGained += e.Data.SanityValue;
-                KilledThisRoom++;
-                KillsThisTick++;
-            }
+            float dmg = damage;
+            if (e.IsMarked) dmg *= Enemy.MarkedDamageMultiplier;
+            if (e.TakeDamage(dmg)) RecordKill(e);
         }
         return struck;
     }

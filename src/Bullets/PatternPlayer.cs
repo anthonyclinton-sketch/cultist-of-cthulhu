@@ -34,6 +34,15 @@ public sealed class PatternPlayer
     /// <summary>0..1 through the telegraph. Drives the wind-up animation and the audio cue.</summary>
     public float TelegraphProgress { get; private set; }
 
+    /// <summary>
+    /// Fraction of emitted bullets flagged as hallucinations (docs/02 §3.4). Driven by the
+    /// player's Sanity band — 0 above Fraying, 1-in-8 at Fraying, 1-in-4 at Unravelled.
+    ///
+    /// This is set from the outside every tick rather than read from a global, so the
+    /// Pattern Lab can drive it independently for readability testing.
+    /// </summary>
+    public float HallucinationRatio;
+
     public void Configure(PatternData pattern, BulletManager bullets, Rng rng)
     {
         _pattern = pattern;
@@ -196,13 +205,20 @@ public sealed class PatternPlayer
         }
     }
 
-    private static void EmitOne(float angle, Vector2 origin, PatternData p, BulletManager b, Rng rng)
+    private void EmitOne(float angle, Vector2 origin, PatternData p, BulletManager b, Rng rng)
         => EmitAt(origin, new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)), p, b, rng);
 
-    private static void EmitAt(Vector2 pos, Vector2 dir, PatternData p, BulletManager b, Rng rng)
+    private void EmitAt(Vector2 pos, Vector2 dir, PatternData p, BulletManager b, Rng rng)
     {
         float speed = p.Speed;
         if (p.SpeedVariance > 0f) speed += rng.Range(-p.SpeedVariance, p.SpeedVariance);
+
+        // Hallucinations are decided PER BULLET at spawn, so a single volley contains a
+        // mix. Deciding per volley would let the player read a whole wave as fake, which
+        // removes the tension entirely.
+        var flags = BulletFlags.None;
+        if (HallucinationRatio > 0f && rng.NextFloat() < HallucinationRatio)
+            flags |= BulletFlags.Hallucination;
 
         b.Spawn(
             position: pos,
@@ -211,7 +227,7 @@ public sealed class PatternPlayer
             lifetime: p.Lifetime,
             color: p.Colour,
             renderSize: p.RenderSize,
-            flags: BulletFlags.None,
+            flags: flags,
             behaviour: p.Behaviour,
             bhParam0: p.BehaviourP0,
             bhParam1: p.BehaviourP1);

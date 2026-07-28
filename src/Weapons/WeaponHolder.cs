@@ -78,12 +78,14 @@ public sealed class WeaponHolder
 
             int struck = enemies.ResolveMeleeArc(
                 origin, aim, w.Data.MeleeReach, w.Data.MeleeArcDegrees,
-                w.Data.Damage, w.Data.MeleeKnockback, out float killSanity);
+                w.Data.Damage, w.Data.MeleeKnockback);
 
             if (struck > 0)
             {
-                // Rate-capped Sanity per hit. The cap is the difference between melee
+                // Rate-capped Sanity per HIT. The cap is the difference between melee
                 // being a sustain option and melee being the whole economy.
+                // Kill Sanity is handled separately via PendingSanityReward, so that
+                // melee kills get the same chain and i-frame multipliers as gun kills.
                 float granted = 0f;
                 for (int i = 0; i < struck; i++)
                 {
@@ -91,7 +93,6 @@ public sealed class WeaponHolder
                 }
                 if (granted > 0f) sanity.GainFromKill(granted);
             }
-            if (killSanity > 0f) sanity.GainFromKill(killSanity);
             return true;
         }
 
