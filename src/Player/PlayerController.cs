@@ -91,7 +91,15 @@ public sealed partial class PlayerController : CharacterBody2D
     public override void _Ready()
     {
         _rng = Hash.Derive(GameRoot.Instance.RunSeed, "player");
+
+        // The controller owns its own body. This used to be each scene's job, and
+        // FloorRunner forgot — the player was fully simulated and completely invisible.
+        // Owning it here makes that impossible to repeat.
+        AddChild(new PlayerVisual { Name = "Visual", Controller = this, ZIndex = 20 });
     }
+
+    /// <summary>Remaining post-damage invulnerability, for the 12Hz flash (docs/02 §2).</summary>
+    public float DamageIFramesRemaining => _damageIFrames;
 
     public void GiveWeapon(WeaponData data) => Weapons.Add(data);
 

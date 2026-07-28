@@ -147,15 +147,9 @@ public sealed partial class CombatArena : Node2D
             Pickups = _pickups,
             Telemetry = _telemetry,
         };
+        // The body is created by PlayerController itself (see PlayerVisual) — scenes no
+        // longer supply one.
         _player.AddChild(new CollisionShape2D { Shape = new CircleShape2D { Radius = 7f } });
-        _player.AddChild(new ColorRect
-        {
-            Name = "Hitbox",
-            Color = new Color("FFB347"),
-            Position = new Vector2(-Tune.PlayerHitboxRadius, -Tune.PlayerHitboxRadius),
-            Size = new Vector2(Tune.PlayerHitboxRadius * 2, Tune.PlayerHitboxRadius * 2),
-            ZIndex = 10,
-        });
         AddChild(_player);
 
         // Three families, including the two M1 mandates: a Grimoire and a melee weapon,
@@ -334,7 +328,6 @@ public sealed partial class CombatArena : Node2D
 
         if (GameRoot.Instance.HeadlessTestMode || DisplayServer.GetName() == "headless") HeadlessTrace(dt);
 
-        UpdateHitboxTint();
         QueueRedraw();
     }
 
@@ -376,15 +369,6 @@ public sealed partial class CombatArena : Node2D
         _player.ResetForTest(Vector2.Zero);
         _roomIndex = 0;
         StartRoom();
-    }
-
-    private void UpdateHitboxTint()
-    {
-        var hitbox = _player.GetNodeOrNull<ColorRect>("Hitbox");
-        if (hitbox is null) return;
-        hitbox.Color = _player.IsInvulnerable
-            ? new Color("FFFFFF")
-            : new Color("FFB347") with { A = 0.75f };
     }
 
     /// <summary>

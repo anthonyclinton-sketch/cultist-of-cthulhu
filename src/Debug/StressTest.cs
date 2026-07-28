@@ -96,19 +96,9 @@ public sealed partial class StressTest : Node2D
     private void BuildPlayer()
     {
         _player = new PlayerController { Name = nameof(PlayerController), Position = Vector2.Zero };
+        // The body — including the always-visible 6px hitbox that goes fully lit during
+        // i-frames (docs/02 §1.1) — is created by PlayerController itself. See PlayerVisual.
         _player.AddChild(new CollisionShape2D { Shape = new CircleShape2D { Radius = 7f } });
-
-        // The 6px hitbox is always faintly visible and fully lit during i-frames
-        // (docs/02 §1.1). Placeholder art, real rule.
-        var hitbox = new ColorRect
-        {
-            Name = "Hitbox",
-            Color = new Color("FFB347"),
-            Position = new Vector2(-Tune.PlayerHitboxRadius, -Tune.PlayerHitboxRadius),
-            Size = new Vector2(Tune.PlayerHitboxRadius * 2, Tune.PlayerHitboxRadius * 2),
-            ZIndex = 10,
-        };
-        _player.AddChild(hitbox);
         AddChild(_player);
     }
 
@@ -194,19 +184,6 @@ public sealed partial class StressTest : Node2D
             }
         }
 
-        UpdateHitboxTint();
-    }
-
-    private void UpdateHitboxTint()
-    {
-        var hitbox = _player.GetNodeOrNull<ColorRect>("Hitbox");
-        if (hitbox is null) return;
-
-        // Fully opaque during i-frames: the player must always be able to see exactly
-        // what is invulnerable (docs/02 §4).
-        hitbox.Color = _player.IsInvulnerable
-            ? new Color("FFFFFF")
-            : new Color("FFB347") with { A = 0.75f };
     }
 
     private void HandleDebugInput()
