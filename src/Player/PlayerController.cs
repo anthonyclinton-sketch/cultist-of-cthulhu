@@ -175,8 +175,12 @@ public sealed partial class PlayerController : CharacterBody2D
         Phase = BlinkPhase.Startup;
         _blinkFrame = 0;
 
-        float duration = Tune.BlinkTotalFrames / 60f;
-        _blinkVelocity = dir * (Tune.BlinkDistance / duration);
+        // A DASH, not a fixed hop: 2x the player's current move speed, so it inherits
+        // move-speed modifiers (the Unravelled band's +10%, and any future mobility
+        // sigil). Distance is therefore derived from the frame data rather than authored
+        // — see Tune.BlinkEffectiveDistance for why the old authored value was wrong.
+        float dashSpeed = Tune.PlayerMoveSpeed * Tune.BlinkSpeedMultiplier * Sanity.MoveSpeedMultiplier;
+        _blinkVelocity = dir * dashSpeed;
         _smoothedVelocity = _blinkVelocity;
     }
 

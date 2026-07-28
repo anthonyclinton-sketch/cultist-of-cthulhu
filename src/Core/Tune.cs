@@ -32,9 +32,31 @@ public static class Tune
     public const int BlinkInvulnFrames = 14;             // frames 3-16  INVULNERABLE
     public const int BlinkRecoveryFrames = 8;            // frames 17-24 vulnerable, 40% move
     public const int BlinkTotalFrames = BlinkStartupFrames + BlinkInvulnFrames + BlinkRecoveryFrames; // 24 = 0.40s
-    public const float BlinkDistance = 3.2f * PixelsPerUnit;  // ~51px
     public const float BlinkRecoveryMoveMult = 0.40f;
     public const float BlinkCooldown = 0.12f;            // prevents input-buffer chaining
+
+    /// <summary>
+    /// Blink Step travels at this multiple of the player's CURRENT move speed — so it is
+    /// a dash, and so it inherits move-speed modifiers (the Unravelled band's +10%, and
+    /// later any mobility sigil) instead of being a fixed teleport hop.
+    ///
+    /// This replaces the old authored BlinkDistance, which was a lie: distance was
+    /// computed as `BlinkDistance / totalDuration` but the recovery frames then scaled
+    /// velocity by 0.4, so the dash never actually covered the 3.2 units the docs claimed
+    /// — it covered ~2.56. Authoring the SPEED and deriving the distance makes the number
+    /// in the design doc match the number in the game.
+    /// </summary>
+    public const float BlinkSpeedMultiplier = 2.0f;
+
+    /// <summary>
+    /// Distance a dash actually covers, derived from the frame data. Full speed through
+    /// startup and i-frames, then BlinkRecoveryMoveMult through the recovery tail.
+    /// ~57px / 3.6 units at the default multiplier.
+    /// </summary>
+    public static float BlinkEffectiveDistance =>
+        PlayerMoveSpeed * BlinkSpeedMultiplier *
+        ((BlinkStartupFrames + BlinkInvulnFrames) / 60f
+         + BlinkRecoveryFrames / 60f * BlinkRecoveryMoveMult);
 
     // ---------------------------------------------------------------- Sanity (docs/02 §3)
 

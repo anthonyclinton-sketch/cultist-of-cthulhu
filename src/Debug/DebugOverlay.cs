@@ -129,9 +129,13 @@ public sealed partial class DebugOverlay : CanvasLayer
     {
         if (_player is null) return "player       (none)";
         var s = _player.Sanity;
+        float dashSpeed = Tune.PlayerMoveSpeed * Tune.BlinkSpeedMultiplier * s.MoveSpeedMultiplier;
         return
             $"sanity       {s.Current:F0}/{s.Max:F0}  ceiling {s.LucidCeiling:F0}  band {s.Band}\n" +
+            $"speed        walk {Tune.PlayerMoveSpeed * s.MoveSpeedMultiplier:F0} px/s   " +
+            $"dash {dashSpeed:F0} px/s ({Tune.BlinkSpeedMultiplier:F1}x)   " +
+            $"reach {Tune.BlinkEffectiveDistance:F0} px\n" +
             $"blink        {_player.Phase}   invuln {_player.IsInvulnerable}\n" +
-            $"hits taken   {_player.HitsTaken}   denied blinks {_player.DeniedBlinkCount}";
+            $"hits taken   {_player.HitsTaken}   denied sustain {_player.DeniedSustainCount}";
     }
 }

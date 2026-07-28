@@ -257,10 +257,25 @@ The single most-pressed button. Its spec is the spec of the game.
 | **Invulnerable window** | frames 3–16 (0.233s) |
 | **Recovery** | frames 17–24 (0.133s) — vulnerable, movement locked to 40% |
 | Total duration | 0.40s |
-| Distance | 3.2 units (~51px) |
+| **Speed** | **2.0 × current move speed** (~179 px/s) — authored value |
+| Distance | **~3.6 units (~57px)** — *derived*, not authored. See the note below. |
 | Cooldown | 0.12s after recovery (prevents input-buffer chaining) |
 | Direction | Movement input at press; if none, aim direction |
 | Cancel | Recovery cancellable into another Blink Step (double-cost) or into firing at frame 20 |
+
+> **[DECISION — playtest, 26 Jul 2026] Blink Step is a DASH: it moves at 2× the player's current move speed.** Requested after the first hands-on session; mechanics otherwise confirmed as feeling good.
+>
+> **Speed is now the authored value and distance is derived.** The old spec had this backwards, and the old number was wrong: velocity was computed as `BlinkDistance / totalDuration`, but the recovery frames then scale velocity by 0.4 — so the dash never covered the 3.2 units this document claimed. It covered **~2.56**. Authoring the speed makes the documented number and the in-game number the same thing.
+>
+> | | Old (authored distance) | New (authored speed) |
+> |---|---|---|
+> | Speed during i-frames | 128 px/s (1.43× walk) | **179 px/s (2.0× walk)** |
+> | Actual distance covered | 40.9 px | **57.3 px** |
+> | Documented distance | 51.2 px *(never true)* | 57.3 px *(derived, true)* |
+>
+> **It scales with move speed**, which is the reason to express it as a multiplier rather than a constant: the Unravelled band's +10% movement (§3.4) now lengthens the dash too, and every future mobility sigil will as well, without anyone having to remember to touch a second number.
+>
+> **Consequence to watch — dash-cancelling becomes the traversal mode.** Spamming the dash now moves at ~110 px/s against a walk of 89.6, so crossing a room is ~23% faster by dashing. Post-F4 that is free. This is normal and good for the genre (Gungeon, Hades and Nuclear Throne all work this way) and it makes movement feel far better, but it means **the 8-frame vulnerable recovery tail is now doing even more work as the sole brake.** If dash-spam ever becomes a problem the lever is the tail and the cooldown — *not* the speed multiplier, which is what makes it feel good.
 
 **Feel requirements:**
 - 3-frame ghost trail in the character's sigil colour.
