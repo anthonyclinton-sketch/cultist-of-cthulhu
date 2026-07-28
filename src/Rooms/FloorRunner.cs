@@ -220,6 +220,7 @@ public sealed partial class FloorRunner : Node2D
         _camera.Offset = _player.ShakeOffset(_rng);
 
         if (_encounterActive && _enemies.AliveCount == 0) ClearRoom();
+        if (_player.IsDead) OnDeath();
 
         QueueRedraw();
         HandleDebugKeys();
@@ -437,6 +438,48 @@ public sealed partial class FloorRunner : Node2D
     }
 
     // ---------------------------------------------------------------- Draw
+
+    /// <summary>
+    /// Death. Its absence is what turned a lost run into an apparent freeze: with no
+    /// handler the scene simply kept ticking a corpse, and nothing ever restored the
+    /// time scale or gave the player a way out.
+    /// </summary>
+    private void OnDeath()
+    {
+        GD.Print("--------------------------------------------------------");
+        GD.Print($"[FloorRunner] DEAD after {_roomsCleared} rooms.");
+        GD.Print(_telemetry.Summary());
+        _telemetry.WriteCsv();
+
+        // Clear the time scale explicitly. Relying on the per-frame Apply() to release it
+        // is what failed here in the first place.
+        _hitStop.Clear();
+
+        RestartFloor();
+    }
+
+    /// <summary>Rebuild the run on the same floor: everything back to the entrance.</summary>
+    private void RestartFloor()
+    {
+        _enemies.ClearAll();
+        _enemyBullets.Clear();
+        _playerBullets.Clear();
+        _pickups.ClearAll();
+
+        foreach (StaticBody2D body in _doorSeals.Values) body.QueueFree();
+        _doorSeals.Clear();
+
+        _clearedRooms.Clear();
+        _encounterActive = false;
+        _pendingSealRoom = -1;
+        _currentRoom = -1;
+        _roomsCleared = 0;
+        _drops.ResetForRun();
+
+        PlacedRoom entrance = _floor.FindRole(RoomRole.Entrance)!;
+        _player.ResetForTest(_geometry.RoomCentreWorld(entrance));
+        EnterRoom(entrance.NodeId);
+    }
 
     /// <summary>Engine.TimeScale is global state. Leaving a scene mid-hit-stop would
     /// otherwise strand the whole game at 0.05x.</summary>

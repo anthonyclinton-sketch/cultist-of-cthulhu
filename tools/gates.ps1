@@ -100,6 +100,25 @@ foreach ($s in @("1", "7", "cthulhu")) {
 }
 if ($failed -notcontains "floor smoke") { Write-Host " boots and runs on 3 seeds: PASS" }
 
+# ENGINE WARNING BUDGET.
+#
+# A per-frame engine warning is not cosmetic: Godot generates a full managed stack walk,
+# formats it and flushes it to disk for each one. At display rate that stalls the process
+# badly enough to be reported as the game freezing, which is exactly what happened with
+# MultiMesh physics interpolation.
+#
+# It went unnoticed for a milestone because every gate piped output through
+# `Select-Object -Last N`, so the thousands of warnings scrolled past unseen. Counting them
+# is the fix; a budget of zero is achievable and anything above it is a real defect.
+Write-Host "`n### ENGINE WARNING BUDGET ###"
+$warnOutput = & $godot --headless --path $root res://scenes/debug/FloorRunner.tscn --seed 7 --quit-after 600 2>&1
+$warnCount = ($warnOutput | Select-String -Pattern "^WARNING:").Count
+Write-Host " engine warnings over 600 frames: $warnCount"
+if ($warnCount -gt 0) {
+    $warnOutput | Select-String -Pattern "^WARNING:" | Select-Object -First 3 | ForEach-Object { Write-Host "   $_" }
+    $failed += "engine warnings ($warnCount)"
+} else { Write-Host " no engine warnings: PASS" }
+
 # Advisory, not a gate. These are tuning targets — drifting out of them should start a
 # conversation, not break the build.
 Write-Host "`n### ECONOMY SIMULATION (advisory) ###"

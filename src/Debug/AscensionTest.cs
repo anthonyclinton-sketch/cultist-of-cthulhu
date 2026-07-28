@@ -26,6 +26,7 @@ public sealed partial class AscensionTest : Node
         GD.Print(" ASCENSION INVARIANTS");
         GD.Print("================================================================");
 
+        TestDeadPlayerPublishesNoHitStop();
         TestSpendingToZeroTriggers();
         TestDrainingToZeroTriggers();
         TestDurationDiminishes();
@@ -42,6 +43,37 @@ public sealed partial class AscensionTest : Node
     {
         if (condition) GD.Print($" [ok]   {what}");
         else { GD.PrintErr($" [FAIL] {what}"); _failures++; }
+    }
+
+    /// <summary>
+    /// A dead player must publish no hit-stop request.
+    ///
+    /// It did. PendingHitStop was cleared AFTER the IsDead early return, so the value from
+    /// the killing blow persisted forever, the scene re-requested a hit stop every frame,
+    /// and Engine.TimeScale locked at 0.05 — the game ran at 1/20 speed indefinitely and
+    /// was reported as frozen.
+    ///
+    /// The general rule this guards: any state a dead entity still PUBLISHES must be reset
+    /// before the early return, because consumers keep reading it.
+    /// </summary>
+    private void TestDeadPlayerPublishesNoHitStop()
+    {
+        var player = new CultistOfCthulhu.Player.PlayerController();
+        AddChild(player);
+
+        player.ResetForTest(Godot.Vector2.Zero);
+        player.DebugKill();
+
+        // Two ticks: one to enter the dead state, one to prove nothing lingers.
+        player._PhysicsProcess(1.0 / 60.0);
+        player._PhysicsProcess(1.0 / 60.0);
+
+        Check(player.IsDead, "player reports dead");
+        Check(player.PendingHitStop <= 0f,
+              $"a dead player requests no hit stop (was {player.PendingHitStop:F3}) — " +
+              "otherwise TimeScale locks and the game appears frozen");
+
+        player.QueueFree();
     }
 
     // ---------------------------------------------------------------- The bug that started this

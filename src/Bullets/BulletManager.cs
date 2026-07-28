@@ -178,14 +178,37 @@ public sealed partial class BulletManager : Node2D
     {
         // Draw shadows first so they sit beneath every bullet body.
         _shadowMesh = BuildMesh();
-        _shadowLayer = new MultiMeshInstance2D { Multimesh = _shadowMesh, Name = "ShadowLayer", ZIndex = -1 };
+        _shadowLayer = new MultiMeshInstance2D
+        {
+            Multimesh = _shadowMesh, Name = "ShadowLayer", ZIndex = -1,
+            PhysicsInterpolationMode = PhysicsInterpolationModeEnum.Off,
+        };
         AddChild(_shadowLayer);
 
         _bodyMesh = BuildMesh();
-        _bodyLayer = new MultiMeshInstance2D { Multimesh = _bodyMesh, Name = "BodyLayer", ZIndex = 0 };
+        _bodyLayer = new MultiMeshInstance2D
+        {
+            Multimesh = _bodyMesh, Name = "BodyLayer", ZIndex = 0,
+            PhysicsInterpolationMode = PhysicsInterpolationModeEnum.Off,
+        };
         AddChild(_bodyLayer);
     }
 
+    /// <summary>
+    /// PhysicsInterpolationMode is OFF on both layers, and that is not an optimisation —
+    /// leaving it on made the game unplayable.
+    ///
+    /// The project enables physics interpolation globally (docs/09 §4), so Godot expects
+    /// MultiMesh buffers to be written during _PhysicsProcess and warns when they are
+    /// written from _Process. This class interpolates the buffer ITSELF — that is the whole
+    /// point of writing transforms by hand — so the engine's interpolation is both
+    /// redundant and wrong here.
+    ///
+    /// The cost was not the redundant work. It was the warning: Godot emitted it once per
+    /// frame, each time generating a full managed stack walk, formatting it, and flushing
+    /// it to the log file. A stack trace per frame at display rate stalls the process hard
+    /// enough to read as a freeze, and it was reported as one.
+    /// </summary>
     private static MultiMesh BuildMesh()
     {
         // A unit quad; per-instance scale carries the bullet's actual diameter.

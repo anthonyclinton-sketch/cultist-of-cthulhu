@@ -103,12 +103,30 @@ public sealed partial class PlayerController : CharacterBody2D
 
     public void GiveWeapon(WeaponData data) => Weapons.Add(data);
 
+    /// <summary>Test hook: kill the player outright, with a pending hit stop set as the
+    /// killing blow would leave it.</summary>
+    public void DebugKill()
+    {
+        Hearts = 0f;
+        PendingHitStop = Core.HitStop.PlayerDamaged;
+    }
+
     public override void _PhysicsProcess(double delta)
     {
+        // Cleared BEFORE the death check, not after.
+        //
+        // It used to sit below the early return, so the value from the killing blow was
+        // never cleared — a dead player published PendingHitStop = 0.06 forever, the scene
+        // re-requested a hit stop every frame, and Engine.TimeScale locked at 0.05. The
+        // game then ran at 1/20 speed indefinitely with a player who could not act, which
+        // is indistinguishable from a freeze and was reported as one.
+        //
+        // Any state a dead player still PUBLISHES has to be reset before returning.
+        PendingHitStop = 0f;
+
         if (IsDead) return;
 
         float dt = (float)delta;
-        PendingHitStop = 0f;
 
         if (_blinkCooldown > 0f) _blinkCooldown -= dt;
         if (_damageIFrames > 0f) _damageIFrames -= dt;
