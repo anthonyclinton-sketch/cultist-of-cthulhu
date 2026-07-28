@@ -113,6 +113,42 @@ public static class Tune
     public const float HallucinationRatioFraying = 0.125f;   // 1 in 8
     public const float HallucinationRatioUnravelled = 0.25f; // 1 in 4
 
+    // ------------------------------------------------------------- Ascension (docs/02 §6)
+    //
+    // Sanity zero does not kill you — it changes you. The design constraint that governs
+    // every number here: ASCENSION MUST NEVER BE OPTIMAL TO FARM. Fable's review found it
+    // was farmable to infinity because the heart cost vanished at low health and the
+    // max-Sanity penalty stopped escalating at the floor. The debt rule and the
+    // diminishing duration below are what close that.
+
+    /// <summary>Duration by ascension index within a run. Repetition is allowed; farming
+    /// is not — the fifth is a quarter of the first.</summary>
+    public static readonly float[] AscensionDurations = { 20f, 14f, 10f, 7f, 5f };
+    public const float AscensionMinDuration = 5f;
+
+    public const float AscensionSpeedMultiplier = 1.35f;
+    public const float AscensionExitSanity = 50f;
+
+    /// <summary>Heart cost on exit, rising half a heart per Ascension.</summary>
+    public const float AscensionExitHeartCost = 1.0f;
+    public const float AscensionHeartCostEscalation = 0.5f;
+
+    /// <summary>Max-Sanity penalty per Ascension, floored so it cannot reach zero.</summary>
+    public const float AscensionMaxSanityPenalty = 10f;
+    public const float AscensionMaxSanityFloor = 40f;
+
+    /// <summary>The heart cost cannot reduce you below this — but see the debt rule.</summary>
+    public const float AscensionHeartFloor = 0.5f;
+    /// <summary>Heart containers can never be reduced below this by Ascension debt.</summary>
+    public const float AscensionMinContainers = 1f;
+
+    public const float AscensionCorruption = 1f;
+
+    /// <summary>Fire rate and damage of the form attack that replaces your weapons.</summary>
+    public const float AscensionAttackRate = 9f;
+    public const float AscensionAttackDamage = 14f;
+    public const int AscensionAttackProjectiles = 5;
+
     // ---------------------------------------------------------------- Bullets (docs/09 §3)
 
     public const int MaxBullets = 4096;                  // hard array capacity

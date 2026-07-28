@@ -39,6 +39,39 @@ public sealed partial class Hud : Node2D
         DrawHearts(anchor);
         DrawCorruption(anchor + new Vector2(-24, 44));
         DrawWeapon(new Vector2(430, 300));
+        DrawAscension();
+    }
+
+    /// <summary>
+    /// docs/02 §6. The white-out marks the transformation; the countdown bar is the only
+    /// piece of UI allowed into the play area, and only because the entire point of the
+    /// state is that it is ending.
+    /// </summary>
+    private void DrawAscension()
+    {
+        var a = Player!.Ascension;
+        var font = ThemeDB.FallbackFont;
+
+        if (a.WhiteoutRemaining > 0f)
+        {
+            float alpha = a.WhiteoutRemaining / AscensionController.WhiteoutDuration;
+            DrawRect(new Rect2(0, 0, 640, 360), new Color(1, 1, 1, alpha));
+        }
+
+        if (!a.IsAscended) return;
+
+        // Countdown, centred and unmissable — the bill is coming and the player should
+        // feel it approaching.
+        const float w = 220f, h = 4f;
+        var p = new Vector2(320 - w * 0.5f, 40);
+        DrawRect(new Rect2(p, new Vector2(w, h)), new Color(0, 0, 0, 0.6f));
+        DrawRect(new Rect2(p, new Vector2(w * (1f - a.Progress), h)), new Color("B0122A"));
+
+        DrawString(font, new Vector2(320 - 60, 32), "ASCENDED", HorizontalAlignment.Center, 120, 12,
+                   new Color("B0122A"));
+        DrawString(font, new Vector2(320 - 90, 60),
+                   $"exit costs {a.HeartCostForNext():F1} hearts", HorizontalAlignment.Center, 180, 9,
+                   new Color(0.8f, 0.5f, 0.5f));
     }
 
     private void DrawSanityRing(Vector2 c)

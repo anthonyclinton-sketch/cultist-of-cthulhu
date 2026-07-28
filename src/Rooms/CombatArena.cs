@@ -284,6 +284,7 @@ public sealed partial class CombatArena : Node2D
         HandleDebugKeys();
 
         _player.Sanity.InCombat = _roomActive && _enemies.AliveCount > 0;
+        _enemies.PlayerAscended = _player.Ascension.IsAscended;
         _telemetry.Tick(dt, _player.Sanity);
 
         // docs/02 §8 — hit stop. Owned here because the arena owns the time scale.
@@ -370,6 +371,11 @@ public sealed partial class CombatArena : Node2D
             _telemetry.WriteCsv();
         }
         if (Input.IsKeyPressed(Key.G)) _player.Sanity.DebugSetCurrent(Tune.SanityMax);
+
+        // K forces Ascension. Without this it is nearly impossible to reach on purpose —
+        // the player dies at 6 hits but Ascension needs 10, so in normal play it only
+        // happens via heavy Grimoire or Banish spending. Needed to feel the state at all.
+        if (Input.IsKeyPressed(Key.K) && !_player.Ascension.IsAscended) _player.Sanity.Drain(999f);
     }
 
     // ---------------------------------------------------------------- Enemy rendering

@@ -54,6 +54,10 @@ Write-Host "`n### CONTENT VALIDATION ###"
 & $godot --headless --path $root res://scenes/debug/ContentValidator.tscn
 if ($LASTEXITCODE -ne 0) { $failed += "content validation" }
 
+Write-Host "`n### ASCENSION INVARIANTS ###"
+& $godot --headless --path $root res://scenes/debug/AscensionTest.tscn
+if ($LASTEXITCODE -ne 0) { $failed += "ascension invariants" }
+
 Write-Host "`n### M0 GATE 1 — BULLET PERFORMANCE ###"
 & $godot --headless --path $root res://scenes/debug/Benchmark.tscn --seed $Seed
 if ($LASTEXITCODE -ne 0) { $failed += "bullet performance" }

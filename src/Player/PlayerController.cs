@@ -23,10 +23,16 @@ public sealed partial class PlayerController : CharacterBody2D
 {
     public SanitySystem Sanity { get; } = new();
     public WeaponHolder Weapons { get; } = new();
+    public AscensionController Ascension { get; } = new();
     public Telemetry? Telemetry { get; set; }
 
+    /// <summary>docs/02 §7. The threshold EFFECTS are M3; this counter exists now so that
+    /// Ascension's cost is actually recorded rather than silently dropped.</summary>
+    public float Corruption { get; private set; }
+
     public BlinkPhase Phase { get; private set; } = BlinkPhase.None;
-    public bool IsInvulnerable => Phase == BlinkPhase.Invulnerable || _damageIFrames > 0f;
+    public bool IsInvulnerable =>
+        Ascension.IsAscended || Phase == BlinkPhase.Invulnerable || _damageIFrames > 0f;
 
     public Vector2 AimDirection { get; private set; } = Vector2.Right;
 
@@ -87,6 +93,21 @@ public sealed partial class PlayerController : CharacterBody2D
         if (_contactDamageCooldown > 0f) _contactDamageCooldown -= dt;
 
         UpdateAim();
+
+        // Ascension trigger is polled, not signalled from the damage path. Sanity can
+        // reach zero by being SPENT as easily as by being drained (a Banish at exactly 45
+        // does it), and the two must behave identically — see SanitySystem.SetCurrent.
+        if (!Ascension.IsAscended && Sanity.ConsumeAscensionTrigger()) BeginAscension();
+
+        if (Ascension.IsAscended)
+        {
+            TickAscended(dt);
+            MoveAndSlide();
+            PublishToBulletManagers();
+            CollectKillRewards();
+            return;   // no Blink Step, no weapons, no incoming damage while Ascended
+        }
+
         HandleBanishAndOpenEye(dt);
         HandleBlinkInput();
         HandleWeaponInput(dt);
@@ -103,6 +124,94 @@ public sealed partial class PlayerController : CharacterBody2D
         PublishToBulletManagers();
         ConsumeIncomingHits();
         ConsumeContactDamage();
+    }
+
+    // ---------------------------------------------------------------- Ascension (docs/02 §6)
+
+    private void BeginAscension()
+    {
+        Ascension.Begin(Sanity);
+        Telemetry?.NoteAscension();
+        EmitSignal(SignalName.Ascended);
+
+        // The transformation clears the screen. Not a mercy — the fiction is that reality
+        // briefly stops applying to you, and mechanically it marks the moment so the
+        // player registers it as an event rather than a stat change.
+        EnemyBullets?.Clear();
+
+        GD.Print($"[Ascension #{Ascension.AscensionCount + 1}] {Ascension.DurationForNext():F0}s   " +
+                 $"exit cost {Ascension.HeartCostForNext():F1} hearts");
+    }
+
+    private void TickAscended(float dt)
+    {
+        // Faster, invulnerable, and armed with a form attack instead of your weapons.
+        Vector2 input = ReadMoveInput();
+        Velocity = input * Tune.PlayerMoveSpeed * Tune.AscensionSpeedMultiplier;
+        _smoothedVelocity = Velocity;
+
+        if (Input.IsActionPressed("fire") && Ascension.TryConsumeAttack()) FireFormAttack();
+
+        if (Ascension.Tick(dt)) EndAscension();
+    }
+
+    /// <summary>Infinite-ammo spread that replaces the weapon set while Ascended.</summary>
+    private void FireFormAttack()
+    {
+        if (PlayerBullets is null) return;
+
+        float baseAngle = Mathf.Atan2(AimDirection.Y, AimDirection.X);
+        const float spread = Mathf.Pi / 5f;
+
+        for (int i = 0; i < Tune.AscensionAttackProjectiles; i++)
+        {
+            float t = Tune.AscensionAttackProjectiles > 1
+                ? i / (float)(Tune.AscensionAttackProjectiles - 1) - 0.5f
+                : 0f;
+            float angle = baseAngle + t * spread;
+            var dir = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
+
+            PlayerBullets.Spawn(
+                position: GlobalPosition,
+                velocity: dir * 380f,
+                radius: 5f,
+                lifetime: 1.1f,
+                color: new Color("B0122A"),
+                renderSize: 13f,
+                flags: BulletFlags.PlayerOwned | BulletFlags.Piercing,
+                damage: Tune.AscensionAttackDamage);
+        }
+    }
+
+    private void EndAscension()
+    {
+        Ascension.ResolveExit(Sanity, Hearts, MaxHearts,
+                              out float heartsToDeduct, out float maxHeartDebt, out bool defaulted);
+
+        Hearts = Mathf.Max(Tune.AscensionHeartFloor, Hearts - heartsToDeduct);
+
+        // The debt rule. Whatever current health could not pay is taken permanently out
+        // of max containers, so Ascending at low health is not cheaper — it is worse.
+        if (maxHeartDebt > 0f)
+        {
+            MaxHearts = Mathf.Max(Tune.AscensionMinContainers, MaxHearts - maxHeartDebt);
+            Hearts = Mathf.Min(Hearts, MaxHearts);
+        }
+
+        Corruption += Tune.AscensionCorruption;
+        _damageIFrames = 1.2f;   // brief grace so the exit is not instantly lethal
+
+        GD.Print($"[Ascension end] −{heartsToDeduct:F1} hearts" +
+                 (maxHeartDebt > 0f ? $"  −{maxHeartDebt:F1} MAX hearts (debt)" : "") +
+                 $"  −{Ascension.LastMaxSanityPenalty:F0} max sanity" +
+                 $"  → {Hearts:F1}/{MaxHearts:F1} hearts, sanity {Sanity.Current:F0}/{Sanity.Max:F0}" +
+                 $"  corruption {Corruption:F0}" +
+                 (defaulted ? "   *** DEFAULTED — the bill could not be paid ***" : ""));
+
+        // You do not come back from defaulting.
+        if (defaulted) Hearts = 0f;
+
+        if (IsDead) EmitSignal(SignalName.Died);
     }
 
     // ---------------------------------------------------------------- Aiming
@@ -345,11 +454,11 @@ public sealed partial class PlayerController : CharacterBody2D
 
         // Damage compounds: being hit also costs Sanity, so you get hit and then cannot
         // afford to reload. One of the two mechanisms that punish both extremes.
-        if (Sanity.Drain(Tune.SanityHitCost))
-        {
-            Telemetry?.NoteAscension();
-            EmitSignal(SignalName.Ascended);
-        }
+        //
+        // Note this does NOT start Ascension. Drain latches the trigger inside
+        // SanitySystem and the poll at the top of _PhysicsProcess starts it, so being hit
+        // to zero and spending to zero go through exactly the same path.
+        Sanity.Drain(Tune.SanityHitCost);
 
         if (IsDead) EmitSignal(SignalName.Died);
     }
@@ -365,10 +474,14 @@ public sealed partial class PlayerController : CharacterBody2D
         _blinkFrame = 0;
         _blinkCooldown = 0f;
         _damageIFrames = 0f;
+        MaxHearts = 3f;             // undo any Ascension debt from the previous run
         Hearts = MaxHearts;
         HitsTaken = 0;
         DeniedBlinkCount = 0;
         DeniedSustainCount = 0;
+        Corruption = 0f;
+        Ascension.ResetForRun();
+        Sanity.Suspended = false;
 
         // Sanity and the Lucid Ceiling must reset too, or a new run inherits the previous
         // run's descent — the next attempt would start mid-ladder and every metric keyed

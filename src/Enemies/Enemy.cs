@@ -55,6 +55,9 @@ public sealed class Enemy
 
     public void GrantToken() { HoldsAttackToken = true; }
 
+    /// <summary>Set while the player is Ascended (docs/02 §6). Enemies break off and flee.</summary>
+    public bool Ascended;
+
     public void Tick(float dt, Vector2 playerPos, Vector2 playerVel, FlowField field)
     {
         if (!Alive) return;
@@ -65,6 +68,24 @@ public sealed class Enemy
 
         float distToPlayer = Position.DistanceTo(playerPos);
         Vector2 toPlayer = distToPlayer > 0.01f ? (playerPos - Position) / distToPlayer : Vector2.Right;
+
+        // While the player is Ascended, nothing fights back. This is the mechanical half
+        // of the power fantasy — an invulnerable player who was still being shot at would
+        // feel like a stat buff rather than a transformation.
+        if (Ascended)
+        {
+            _pattern.Cancel();
+            HoldsAttackToken = false;
+            if (State != EnemyState.Dead) State = EnemyState.Reposition;
+
+            // Flee, with a wobble so the room reads as panicking rather than retreating
+            // in formation.
+            float wobble = Mathf.Sin(_stateTimer * 7f + Id) * 0.5f;
+            Vector2 away = -toPlayer.Rotated(wobble);
+            Velocity = Velocity.MoveToward(away * Data.MoveSpeed * 1.3f, Data.MoveSpeed * 6f * dt);
+            Position += Velocity * dt;
+            return;
+        }
 
         switch (State)
         {

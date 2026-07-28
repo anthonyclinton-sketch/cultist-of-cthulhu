@@ -48,27 +48,70 @@ public sealed class SanitySystem
     public float Fraction => Max <= 0f ? 0f : Current / Max;
     public bool CanOpenEye => _openEyeCooldown <= 0f && Current >= Tune.OpenEyeCost + Tune.OpenEyeMinSanity;
 
-    // ---------------------------------------------------------------- Spending
+    // ---------------------------------------------------------------- Mutation
+
+    /// <summary>
+    /// Set true while Ascended. Suspends all drain, spend and regen — the bar is not a
+    /// resource during the Ascended window, it is the thing that ran out.
+    /// </summary>
+    public bool Suspended;
+
+    /// <summary>
+    /// Latched when Sanity reaches zero from any direction. Consumed exactly once by the
+    /// AscensionController.
+    /// </summary>
+    public bool AscensionPending { get; private set; }
+
+    public bool ConsumeAscensionTrigger()
+    {
+        if (!AscensionPending) return false;
+        AscensionPending = false;
+        return true;
+    }
+
+    /// <summary>
+    /// THE ONLY PLACE Current is written. Everything else routes through here.
+    ///
+    /// This exists because it did not, and that produced a real bug: Drain() checked for
+    /// zero and TrySpend() did not, so being HIT to zero triggered Ascension while
+    /// SPENDING to zero silently dropped the player into the Ascension band with nothing
+    /// happening — and the next kill quietly refunded them back out. Banish at exactly 45
+    /// Sanity hit that path every time.
+    ///
+    /// Two code paths to the same state, one of them wired: that is a bug class, not a
+    /// bug. Funnelling every write through one method removes the class.
+    /// </summary>
+    private void SetCurrent(float value)
+    {
+        float clamped = Mathf.Clamp(value, 0f, Max);
+        bool wasAlive = Current > 0f;
+        Current = clamped;
+
+        if (wasAlive && Current <= 0f) AscensionPending = true;
+
+        RecomputeBand();
+    }
 
     public bool CanAfford(float cost) => Current >= cost;
 
     /// <summary>Spend if affordable. Returns false and spends nothing otherwise.</summary>
     public bool TrySpend(float cost)
     {
+        if (Suspended) return true;      // Ascended: actions are free, nothing is deducted
         if (Current < cost) return false;
-        Current -= cost;
-        RecomputeBand();
+        SetCurrent(Current - cost);
         return true;
     }
 
     /// <summary>
-    /// Unconditional drain (taking a hit, Revelations). Floors at zero and reports whether
-    /// that triggered Ascension — the caller owns the Ascension sequence, not this class.
+    /// Unconditional drain (taking a hit, Revelations). Returns true if this drove Sanity
+    /// to zero. Callers may also poll <see cref="ConsumeAscensionTrigger"/>, which is the
+    /// path-independent version and the one the controller actually uses.
     /// </summary>
     public bool Drain(float amount)
     {
-        Current = Mathf.Max(0f, Current - amount);
-        RecomputeBand();
+        if (Suspended) return false;
+        SetCurrent(Current - amount);
         return Current <= 0f;
     }
 
@@ -90,18 +133,19 @@ public sealed class SanitySystem
 
     private void Add(float amount, bool respectCeiling)
     {
+        if (Suspended) return;
         float cap = respectCeiling ? Mathf.Min(Max, LucidCeiling) : Max;
         // Never *reduce* Sanity via a gain — a player already above the ceiling (from a
         // candle) does not lose it by killing something.
         if (Current >= cap && respectCeiling) return;
-        Current = Mathf.Min(cap, Current + amount);
-        RecomputeBand();
+        SetCurrent(Mathf.Min(cap, Current + amount));
     }
 
     // ---------------------------------------------------------------- Tick
 
     public void Tick(float dt)
     {
+        if (Suspended) return;
         if (_openEyeCooldown > 0f) _openEyeCooldown -= dt;
 
         if (InCombat)
@@ -135,15 +179,22 @@ public sealed class SanitySystem
     public void ReduceMax(float amount, float floor = 40f)
     {
         Max = Mathf.Max(floor, Max - amount);
-        Current = Mathf.Min(Current, Max);
         LucidCeiling = Mathf.Min(LucidCeiling, Max);
-        RecomputeBand();
+        SetCurrent(Mathf.Min(Current, Max));
     }
 
     public void SetMax(float value)
     {
         Max = value;
-        Current = Mathf.Min(Current, Max);
+        SetCurrent(Mathf.Min(Current, Max));
+    }
+
+    /// <summary>Restore to a specific value without triggering zero detection — used by
+    /// the Ascension exit, which sets Sanity to 50 by fiat.</summary>
+    public void RestoreTo(float value)
+    {
+        Current = Mathf.Clamp(value, 0f, Max);
+        AscensionPending = false;
         RecomputeBand();
     }
 
@@ -225,9 +276,5 @@ public sealed class SanitySystem
     public bool WeakPointsVisible => Band >= SanityBand.Fraying;
     public bool SecretsOnMinimap => Band >= SanityBand.Unravelled;
 
-    public void DebugSetCurrent(float value)
-    {
-        Current = Mathf.Clamp(value, 0f, Max);
-        RecomputeBand();
-    }
+    public void DebugSetCurrent(float value) => RestoreTo(value);
 }

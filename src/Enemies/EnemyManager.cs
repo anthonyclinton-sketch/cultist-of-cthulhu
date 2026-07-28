@@ -32,6 +32,11 @@ public sealed partial class EnemyManager : Node2D
     public Vector2 PlayerPosition;
     public Vector2 PlayerVelocity;
 
+    /// <summary>docs/02 §6 — "enemies flee or become erratic". Set while the player is
+    /// Ascended. This is what sells the transformation: the room's behaviour changes, not
+    /// just the player's stats.</summary>
+    public bool PlayerAscended;
+
     public int AliveCount { get; private set; }
     public int KilledThisRoom { get; private set; }
 
@@ -96,6 +101,7 @@ public sealed partial class EnemyManager : Node2D
         {
             Enemy e = _enemies[i];
             if (!e.Alive) continue;
+            e.Ascended = PlayerAscended;
             e.Tick(dt, PlayerPosition, PlayerVelocity, _field);
             AliveCount++;
         }

@@ -331,6 +331,7 @@ The blank equivalent, but **not an item** — an always-available action gated p
 4. **On exit:** Sanity resets to 50, you take **1 full heart of damage** (unavoidable, cannot kill you — floors at half a heart), and you gain **+1 Corruption permanently for the run**.
 5. **Escalating cost:** each Ascension in a run reduces max Sanity by 10 (floor: 40) and increases the exit heart cost by half a heart.
 6. **Debt rule (added — see review note):** if the exit heart cost cannot be paid in full because it would reduce you below half a heart, the **unpaid remainder is taken as permanent max-heart reduction for the run instead** (minimum 1 container). Ascension is never free.
+6b. **Defaulting is fatal (added at implementation).** If neither current hearts nor max containers can cover the bill, **the run ends.** See the note below — without this the debt rule only defers the exploit.
 7. **Diminishing duration (added):** the Ascended window is **20s for the first Ascension of a run, then 14 / 10 / 7 / 5s**, floored at 5s. Repetition is allowed; farming is not.
 
 > **[REVIEW — Fable] Ascension was farmable to infinity with no sigil involved. This is the most serious economy break I found, and §5.2's suspicion that Ballast is "a symptom" is correct.**
@@ -345,6 +346,16 @@ The blank equivalent, but **not an item** — an always-available action gated p
 - It converts the "I'm about to die" moment into a *power fantasy with a bill attached* — the emotional peak of every run.
 - It removes the frustration of a resource-drain death while making resource management still matter, because the cost is permanent and compounding.
 - Thematically it is the entire premise of the game, expressed mechanically.
+
+> **[IMPLEMENTATION — 26 Jul 2026] The debt rule alone was not sufficient. Defaulting has been made fatal.**
+>
+> Found while writing the invariant tests, not in review. The debt rule takes unpaid cost out of **max** hearts — but max hearts have a floor of 1 container. Once a player reaches that floor there is nothing left to take, **the unpaid remainder is silently forgiven, and Ascension becomes free again.** It is the same infinite loop Fable found, arriving three Ascensions later instead of immediately, which is arguably worse because it would have survived a short playtest.
+>
+> **A bill that cannot be paid now ends the run.** That bounds the whole system: with escalating costs and a fixed pool to pay from, there is a hard maximum number of Ascensions, and approaching it is visibly terminal. Measured from full health with no healing, the cap is **4**.
+>
+> It is also the better fiction. Ascension is a loan against yourself; you do not come back from defaulting on it.
+>
+> **These are now CI gates** (`scenes/debug/AscensionTest.tscn`), not balance notes. Ascension grants invulnerability, so a mistake here is an exploit rather than a tuning issue. The suite asserts: spending to zero and being hit to zero behave identically; duration never increases; repeated Ascension terminates the run; and Ascending at low health is never cheaper than at full health.
 
 **Balance guard:** Ascension must never be the optimal strategy. Deliberately draining to zero should be a *desperation* line, not a rotation. If playtesting shows players farming Ascensions, increase the max-Sanity penalty first, not the duration.
 
