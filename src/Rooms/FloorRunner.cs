@@ -46,6 +46,7 @@ public sealed partial class FloorRunner : Node2D
     private readonly HashSet<int> _clearedRooms = new();
     private readonly Dictionary<int, StaticBody2D> _doorSeals = new();
     private int _currentRoom = -1;
+    private int _pendingSealRoom = -1;
     private bool _encounterActive;
     private float _hitStopTimer;
     private int _roomsCleared;
@@ -212,6 +213,8 @@ public sealed partial class FloorRunner : Node2D
         if (_player.PendingHitStop > 0f) _hitStopTimer = _player.PendingHitStop;
 
         TrackRoom();
+        UpdatePendingSeal();
+        SafetyUnstick();
 
         _enemies.PlayerPosition = _player.GlobalPosition;
         _enemies.PlayerVelocity = _player.Velocity;
@@ -228,15 +231,88 @@ public sealed partial class FloorRunner : Node2D
         HandleDebugKeys();
     }
 
-    /// <summary>Which room is the player standing in? Drives activation and the minimap.</summary>
+    /// <summary>
+    /// Which room is the player standing in? Drives activation and the minimap.
+    ///
+    /// Tested against the room INTERIOR, not its bounds. A doorway is carved through the
+    /// wall ring of both rooms, so a player standing in a door is inside both rooms'
+    /// bounds — which made the room flip over the instant you touched a threshold and
+    /// sealed a door on top of you.
+    /// </summary>
     private void TrackRoom()
     {
         foreach (PlacedRoom r in _floor.Rooms)
         {
-            if (!_geometry.RoomRectWorld(r).HasPoint(_player.GlobalPosition)) continue;
+            if (!_geometry.RoomInteriorWorld(r).HasPoint(_player.GlobalPosition)) continue;
             if (r.NodeId != _currentRoom) EnterRoom(r.NodeId);
             return;
         }
+        // Standing in a doorway or corridor: keep the last room, do not flip.
+    }
+
+    /// <summary>
+    /// Doors close only once the player is CLEAR of them.
+    ///
+    /// Sealing on room entry spawned a StaticBody2D over a player still standing in the
+    /// threshold, and a CharacterBody2D inside a static body cannot push itself out — the
+    /// run was simply over. The encounter still starts on entry; only the seal waits.
+    ///
+    /// Leaving the room before the seal engages cancels it, which also gives a small,
+    /// forgiving grace window to back out of a fight you have just seen.
+    /// </summary>
+    private void UpdatePendingSeal()
+    {
+        if (_pendingSealRoom < 0) return;
+
+        if (_currentRoom != _pendingSealRoom) { _pendingSealRoom = -1; return; }
+
+        PlacedRoom? room = FindRoom(_pendingSealRoom);
+        if (room is null) { _pendingSealRoom = -1; return; }
+
+        foreach (Doorway d in _geometry.Doors)
+        {
+            if (d.RoomA != room.NodeId && d.RoomB != room.NodeId) continue;
+            // Generous clearance: the player's body radius plus a margin, so the seal never
+            // materialises against them.
+            if (d.WorldRect.Grow(DoorClearance).HasPoint(_player.GlobalPosition)) return;
+        }
+
+        SealDoors(room, true);
+        _pendingSealRoom = -1;
+    }
+
+    /// <summary>
+    /// Last-resort unstick: if the player is ever found inside an active seal, open it.
+    ///
+    /// The ordering fix above should make this unreachable. It exists anyway because the
+    /// failure it guards is TERMINAL — a CharacterBody2D inside a StaticBody2D cannot push
+    /// itself out, so the player is stuck until they quit, losing the run. A rare open door
+    /// is a far cheaper failure than that, and this costs one rect test per seal per tick.
+    /// </summary>
+    private void SafetyUnstick()
+    {
+        if (_doorSeals.Count == 0) return;
+
+        foreach (Doorway d in _geometry.Doors)
+        {
+            int key = d.RoomA * 10000 + d.RoomB;
+            if (!_doorSeals.TryGetValue(key, out StaticBody2D? body)) continue;
+            if (!d.WorldRect.Grow(4f).HasPoint(_player.GlobalPosition)) continue;
+
+            GD.PrintErr("[FloorRunner] player found inside a sealed door — opening it. " +
+                        "This should be unreachable; the seal ordering has a gap.");
+            body.QueueFree();
+            _doorSeals.Remove(key);
+            return;
+        }
+    }
+
+    private const float DoorClearance = 20f;
+
+    private PlacedRoom? FindRoom(int nodeId)
+    {
+        foreach (PlacedRoom r in _floor.Rooms) if (r.NodeId == nodeId) return r;
+        return null;
     }
 
     private void EnterRoom(int nodeId)
@@ -295,7 +371,8 @@ public sealed partial class FloorRunner : Node2D
         if (_enemies.AliveCount == 0) { _clearedRooms.Add(room.NodeId); return; }
 
         _encounterActive = true;
-        SealDoors(room, true);
+        // Arm the seal; UpdatePendingSeal closes it once the player is clear of the door.
+        _pendingSealRoom = room.NodeId;
         _telemetry.BeginRoom(_roomsCleared + 1, _player.Sanity);
 
         GD.Print($"[Room {room.Template.Id}] {room.Role}  budget {budget:F0}  " +
@@ -316,11 +393,11 @@ public sealed partial class FloorRunner : Node2D
     private void ClearRoom()
     {
         _encounterActive = false;
+        _pendingSealRoom = -1;      // never let an armed seal fire after the fight is over
         _clearedRooms.Add(_currentRoom);
         _roomsCleared++;
 
-        PlacedRoom? room = null;
-        foreach (PlacedRoom r in _floor.Rooms) if (r.NodeId == _currentRoom) { room = r; break; }
+        PlacedRoom? room = FindRoom(_currentRoom);
         if (room is not null) SealDoors(room, false);
 
         float headroom = _player.Sanity.LucidCeiling - _player.Sanity.Current;

@@ -64,6 +64,18 @@ public sealed class FloorGeometry
     public Rect2 RoomRectWorld(PlacedRoom r) => new(
         r.Position.X * Tile, r.Position.Y * Tile, r.Width * Tile, r.Height * Tile);
 
+    /// <summary>
+    /// The walkable interior, excluding the wall ring.
+    ///
+    /// Use this for "is the player in this room?" rather than the full bounds. A doorway is
+    /// carved through the wall ring of BOTH adjacent rooms, so a player in a threshold sits
+    /// inside both rooms' bounds at once — which made room tracking flip the moment you
+    /// touched a door instead of when you actually arrived.
+    /// </summary>
+    public Rect2 RoomInteriorWorld(PlacedRoom r) => new(
+        (r.Position.X + 1) * Tile, (r.Position.Y + 1) * Tile,
+        (r.Width - 2) * Tile, (r.Height - 2) * Tile);
+
     private void CarveRoom(PlacedRoom r)
     {
         // Inset by one tile: the outer ring is wall, so flush rooms are separated.
