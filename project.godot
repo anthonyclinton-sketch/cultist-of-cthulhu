@@ -1,0 +1,44 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="Cultist of Cthulhu"
+config/version="0.0.1-m0"
+run/main_scene="res://scenes/debug/StressTest.tscn"
+config/features=PackedStringArray("4.7", "C#", "Forward Plus")
+
+[autoload]
+
+GameRoot="*res://src/Core/GameRoot.cs"
+
+[display]
+
+window/size/viewport_width=640
+window/size/viewport_height=360
+window/size/window_width_override=1280
+window/size/window_height_override=720
+window/stretch/mode="viewport"
+window/vsync/vsync_mode=0
+
+[dotnet]
+
+project/assembly_name="CultistOfCthulhu"
+
+[physics]
+
+common/physics_jitter_fix=0.0
+2d/default_gravity=0.0
+2d/default_gravity_vector=Vector2(0, 0)
+common/physics_interpolation=true
+
+[rendering]
+
+textures/canvas_textures/default_texture_filter=0

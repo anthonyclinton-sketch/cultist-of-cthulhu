@@ -1,0 +1,66 @@
+<#
+    M0 gate runner (docs/11 §2).
+
+        ./tools/gates.ps1              run both gates
+        ./tools/gates.ps1 -Play        launch the interactive stress arena
+        ./tools/gates.ps1 -Seed 12345  fix the seed
+
+    Both gates exit non-zero on failure so this script is CI-consumable as-is.
+#>
+[CmdletBinding()]
+param(
+    [string]$Seed = "cthulhu",
+    [switch]$Play,
+    [switch]$SkipBuild
+)
+
+$ErrorActionPreference = "Stop"
+$root = Split-Path -Parent $PSScriptRoot
+
+# Godot is not assumed to be on PATH. Override with $env:GODOT.
+if ($env:GODOT -and (Test-Path $env:GODOT)) {
+    $godot = $env:GODOT
+} else {
+    $candidates = @(
+        "$env:USERPROFILE\Downloads\Godot_v4.7-stable_mono_win64\Godot_v4.7-stable_mono_win64\Godot_v4.7-stable_mono_win64_console.exe",
+        "$env:LOCALAPPDATA\Programs\Godot\Godot_v4.7-stable_mono_win64_console.exe"
+    )
+    $godot = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $godot) {
+        throw "Godot not found. Set `$env:GODOT to the Godot 4.7 mono console executable."
+    }
+}
+
+Write-Host "godot   $godot"
+Write-Host "seed    $Seed`n"
+
+if (-not $SkipBuild) {
+    # NOTE: Godot loads the Debug assembly from .godot/mono/temp/bin/Debug when running
+    # from the CLI. Building -c Release produces a binary Godot will NOT load, and the
+    # gates then silently measure stale code. Do not "optimise" this to Release.
+    & dotnet build "$root/CultistOfCthulhu.csproj" -v q --nologo
+    if ($LASTEXITCODE -ne 0) { throw "C# build failed." }
+}
+
+if ($Play) {
+    & $godot --path $root res://scenes/debug/StressTest.tscn --seed $Seed
+    exit $LASTEXITCODE
+}
+
+$failed = @()
+
+Write-Host "`n### M0 GATE 1 — BULLET PERFORMANCE ###"
+& $godot --headless --path $root res://scenes/debug/Benchmark.tscn --seed $Seed
+if ($LASTEXITCODE -ne 0) { $failed += "bullet performance" }
+
+Write-Host "`n### M0 GATE 2 — DETERMINISM ###"
+& $godot --headless --path $root res://scenes/debug/DeterminismTest.tscn --seed $Seed
+if ($LASTEXITCODE -ne 0) { $failed += "determinism" }
+
+Write-Host ""
+if ($failed.Count -gt 0) {
+    Write-Host "M0 GATES FAILED: $($failed -join ', ')" -ForegroundColor Red
+    exit 1
+}
+Write-Host "ALL M0 GATES PASS" -ForegroundColor Green
+exit 0

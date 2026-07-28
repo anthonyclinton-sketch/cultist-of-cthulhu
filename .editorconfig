@@ -1,0 +1,29 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.cs]
+indent_style = space
+indent_size = 4
+
+# --- Hot-path discipline (docs/09 §8) ---
+# These are the rules that keep the physics tick allocation-free. They are style
+# warnings, but in Bullets/ and Enemies/ they are correctness warnings.
+dotnet_diagnostic.CA1806.severity = warning   # do not ignore method results
+dotnet_diagnostic.CA1825.severity = warning   # avoid zero-length array allocations
+dotnet_diagnostic.CA1829.severity = warning   # use Length/Count over Enumerable.Count()
+
+csharp_style_namespace_declarations = file_scoped:warning
+csharp_prefer_braces = when_multiline:suggestion
+dotnet_sort_system_directives_first = true
+
+[*.{yml,yaml,json,tres,tscn,godot}]
+indent_style = space
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
