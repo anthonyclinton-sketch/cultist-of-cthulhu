@@ -16,7 +16,9 @@ Gungeon's design is downstream of one decision: **the dodge roll grants invulner
 
 **The trap:** a free, spammable i-frame dodge makes the *rest* of your defensive toolkit meaningless. Gungeon accepts this. Positioning matters far less than in Nuclear Throne or Hades.
 
-**Our decision:** dodge costs a resource (Sanity). This restores positioning as a real skill and creates a decision at every bullet: *do I pay to solve this, or do I move?* See [02](02-player-and-combat.md).
+~~**Our decision:** dodge costs a resource (Sanity)...~~
+
+**Our decision (revised 26 Jul 2026): we take Gungeon's free dodge, and accept its trade.** Positioning matters less than in Nuclear Throne or Hades; that is a real cost and we are paying it knowingly. In exchange we get a dodge that is *proven* to feel good, and we stop spending our differentiation budget on the one verb players are most sensitive to. See §2.2 for why the metered alternative was rejected, and [02 §4](02-player-and-combat.md) for the frame data. Our positioning skill lives instead in the recovery tail and in reload timing.
 
 ### 1.2 Ammo scarcity as a forced-variety engine
 
@@ -131,7 +133,15 @@ This is a candidate fix to Gungeon's free-dodge problem. It means:
 > - It **does** remove the "proven elsewhere" argument. We are not adopting a validated mechanic — **we are prototyping a contested one, in a game whose weapon count removes its original justification.** That reclassifies Bet 1 from "borrowed and safe" to "genuinely novel and unvalidated," which is precisely why [11 §2](11-roadmap.md)'s M1 gate exists and why it needs a control arm (see M1 test design).
 > - The specific complaint — *being forced to stop shooting* — is the one to design against. Our Sanity bar never gates **firing** (except Grimoires), only dodge and reload, which is a materially softer constraint than Pathogenic's. Preserve that distinction deliberately; it is our main protection against the failure mode their players report.
 
-**Our decision:** adopt the *shape* of the mechanism — shared cost across defence and sustain — bound to **Sanity** so it carries thematic and narrative weight, with regeneration-on-kill so the rhythm pushes toward aggression rather than retreat. **Firing itself stays free**, which is where we deliberately diverge from Pathogenic. Treat this as an unvalidated bet requiring a controlled playtest, not an adoption.
+~~**Our decision:** adopt the *shape* of the mechanism — shared cost across defence and sustain — bound to **Sanity**...~~
+
+> **[DECISION — 26 Jul 2026] NOT ADOPTED. Blink Step is free.** This is fallback F4 ([11 §M1](11-roadmap.md)), taken on the evidence assembled in the review note above rather than after spending eight weeks discovering it.
+>
+> The reasoning is entirely contained in that note and it is worth restating as a decision rather than a finding: the mechanic is **contested at its source**, and **its justification does not transfer**. Pathogenic's developer introduced shared stamina to throttle ten simultaneously-equipped auto-firing weapons and prevent *"very chaotic gameplay."* We carry three weapons and fire one at a time. Adopting a mechanism whose original problem we do not have, which that game's own players call *"a sloppy mess"*, was betting the project's central pillar on borrowed trouble.
+>
+> **What we keep from Pathogenic's insight:** Sanity is still a shared cost across *sustain* (Recitation), *panic* (Banish) and *perception* (Open the Eye), and it is still refunded by kills, so the rhythm still pushes toward aggression. What we drop is the *defensive* half of the sharing — which was the half their players complained about, and the half that made the bar a leash rather than a budget.
+>
+> **The honest cost, recorded here so it is not rediscovered later:** the dodge no longer differentiates this game from *Enter the Gungeon*, and the Sanity drain collapses to roughly break-even per room. The descent therefore moves to the **Lucid Ceiling** ([02 §3.3.1](02-player-and-combat.md)) — the world takes your mind whether or not you spend it. Bet 1 is now a *perception and sustain* economy rather than a stamina economy. Bets 2 and 3 (the Sigil Circle, Corruption) are untouched and now carry more of the game's identity than originally planned.
 
 ### 2.3 Meta progression via achievements, not currency
 
@@ -169,8 +179,9 @@ Minibosses guard each body region, acting as progression gates rather than optio
 
 | System | Enter the Gungeon | Pathogenic | Cultist of Cthulhu |
 |---|---|---|---|
-| **Dodge** | Free i-frame roll, ~0.6s cd | Stamina-costed | Sanity-costed **Blink Step**, refunded on kill |
-| **Reload** | Free, manual | Costs the same stamina as dodge | Costs Sanity — **Recitation** |
+| **Dodge** | Free i-frame roll, ~0.6s cd | Stamina-costed | **FREE** i-frame Blink Step, ~0.52s cycle *(F4 — see §2.2)* |
+| **Reload** | Free, manual | Costs the same stamina as dodge | Costs Sanity — **Recitation**. The primary sink under F4. |
+| **Descent driver** | — | — | **The Lucid Ceiling** — Sanity falls as the floor progresses, regardless of play |
 | **Panic button** | Blanks (finite items) | — | **Banish** — huge Sanity cost, always available |
 | **Build vessel** | Invisible list of passives | Hardpoints on your body | **Sigil Circle** — spatial grid, adjacency + ley lines |
 | **Build permanence** | Permanent, unmanageable | Freely re-arrangeable | Freely re-arrangeable in **Reverie** (pause-menu edit) |

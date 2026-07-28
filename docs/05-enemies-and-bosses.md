@@ -192,7 +192,11 @@ REWARD: sigil (tier scales with Corruption) + gold + heart
 ```
 
 **Mandatory properties:**
-- **Every boss has a Sanity source.** Adds, breakable objects, or a phase-transition refill. A boss you cannot fund your dodges against is unbeatable, not hard.
+- **Every boss has a Sanity source.** Adds, breakable objects, or a phase-transition refill.
+
+> **[DECISION — 26 Jul 2026] This rule survives F4, but its reason changes — and it is now MORE important, not less.**
+> The original justification was *"a boss you cannot fund your dodges against is unbeatable."* With Blink Step free, that is no longer true: a player can always dodge. The rule stands because the binding constraint moved to **reload**. A boss with no Sanity source is now a boss where you eventually **cannot afford to keep shooting** — you can survive it indefinitely and never kill it. That is a worse failure than the one the rule originally guarded against, because it is a *stalemate* rather than a death, and stalemates read as broken software rather than as difficulty.
+> **Concretely:** the Sanity source must sustain at least the reload cadence of a reload-weight-1.5 weapon across the phase. Bosses must be checked against a heavy weapon, not a pistol.
 - **Every boss has a safe lane.** For every pattern there exists a positioning solution requiring no Blink Step. **Executing it perfectly is not expected to be free** — safe lanes are narrow, require committed movement, and cost damage uptime. *(Revised — see note.)*
 - **[REVIEW — added] Per-pattern, not per-phase.** The safe lane must exist for each pattern *in isolation*; where two patterns overlap (Phase 2+), the design may require a Blink Step. This is the intended place for the Sanity economy to bite in a boss fight.
 

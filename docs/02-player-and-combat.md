@@ -52,13 +52,32 @@
 
 | Action | Sanity cost | Notes |
 |---|---|---|
-| **Blink Step** (dodge) | **18** | i-frames; see §4 |
-| **Recitation** (reload) | **12 × weapon reload weight** (0.5–2.0) | A heavy weapon is expensive to keep firing |
+| **Blink Step** (dodge) | **0 — FREE** | Limited by cooldown and the vulnerable recovery tail, not by price. See §4 and the note below. |
+| **Recitation** (reload) | **12 × weapon reload weight** (0.5–2.0) | **The primary sink.** A heavy weapon is expensive to keep firing. |
 | **Banish** (screen clear) | **45** | Always available if you can pay; see §5 |
+| **Open the Eye** (deliberate descent) | **25+** | See §3.5.1 |
 | Firing | 0 | Shooting is free. Only *sustaining* fire costs. **Exception: Grimoires ([03](03-weapons-and-inscriptions.md) Family IV) and any weapon carrying *Vessel Rune* fire directly from Sanity.** |
-| Taking a hit | **10** | Damage compounds — you get hit, then you can't dodge |
+| Taking a hit | **10** | Damage compounds — you get hit, then you can't reload |
 | Witnessing a Revelation | 15–30 | Room-entry events, boss phase transitions, opening blasphemous chests |
 | Reading a Tome | 25 | Voluntary; grants Corruption + a sigil |
+
+> **[DECISION — 26 Jul 2026] Blink Step is free. This is fallback F4** ([11 §M1](11-roadmap.md)), taken early rather than after a failed playtest, on the evidence in [00 §2.2](00-comparative-analysis.md).
+>
+> **The consequence this document must own: the Sanity drain collapses.** Dodge at 18 was the dominant sink. Forward-modelling the same Floor 1 room used in §3.3's review note (6 fodder + 1 turret ⇒ ~62 Sanity of income, +20 room clear):
+>
+> | | Metered dodge (old) | Free dodge (F4) |
+> |---|---|---|
+> | Typical room spend | ~162 (5 dodges + 3 reloads) | **~40–90** (3–5 reloads, 0–2 hits, 0–1 Banish) |
+> | Typical room income | ~82 | ~82 |
+> | Net | strongly negative | **roughly break-even** |
+>
+> Left alone, Sanity would sit near the ceiling, the ladder would never fire, and **Pillar III would become decoration** — the exact failure the low-Sanity system exists to avoid.
+>
+> **The fix is structural, not a number tweak: the descent moves from the player's actions to the world.** The Lucid Ceiling (§3.3.1) is now the *primary* driver, steepened to −7 per room with a floor of 45. Late-floor rooms therefore begin in **Unsettled** and end in **Fraying** whatever the player does.
+>
+> This is thematically stronger than what it replaces. The game is about complicity and inevitability; a descent you cannot opt out of by playing well says that better than a stamina bar did. **What it costs:** the dodge no longer differentiates us from *Enter the Gungeon*. We differentiate on the Sigil Circle, on Corruption, and on the descent. Narrower, and honest.
+>
+> **Reload becomes the interesting decision.** With dodge free, reload weight is the main Sanity lever, which promotes weapon choice from a damage decision to a *resource* decision — a Nitro Express at weight 2.0 costs 24 Sanity a magazine and materially changes how much of the ladder you see. That was always the intent of reload weight ([03 §1.3](03-weapons-and-inscriptions.md)); it now carries the system alone.
 
 ### 3.3 Gains
 
@@ -98,12 +117,16 @@ Out-of-combat regeneration refills Sanity **only up to a ceiling that falls as t
 | Property | Value |
 |---|---|
 | Ceiling on floor entry | **100** (or the character's max) |
-| Decay | **−5 per room cleared** on this floor |
-| Ceiling floor | **50** — never drops below |
+| Decay | **−7 per room cleared** on this floor *(steepened from −5 under F4)* |
+| Ceiling floor | **45** — never drops below *(lowered from 50 under F4)* |
 | Reset to 100 | On entering a new floor, and in the **boss foyer** |
 | Can be exceeded by | Sanity candles, shop purchases, Unbroken Seals, certain sigils |
 
-So a 14-room floor runs 100 → 50 over its first ten rooms, and the last third of every floor is played at or near the **Unsettled** band with a genuine risk of ending fights in **Fraying**. Three properties this buys:
+So a 14-room floor runs 100 → 45 over its first eight rooms, and the back half of every floor is played at or near the **Unsettled** band with a genuine likelihood of ending fights in **Fraying**.
+
+> **[DECISION — 26 Jul 2026] Under F4 this section is promoted from a supporting mechanic to the load-bearing one.** With Blink Step free, player spending can no longer carry anyone down the ladder — the ceiling is now the only reliable source of descent, which is why it was steepened. If M1 telemetry shows time-below-40-Sanity under the 25% target ([11](11-roadmap.md) metric 1), **steepen the decay before touching any other number** — this is the lever, and reload costs are the second lever, not the first.
+
+Three properties this buys:
 
 1. **The descent is real.** Sanity trends down across a floor. The theme is now the mechanic.
 2. **The ladder fires when it matters.** You enter late-floor rooms already low, so hallucinations apply to a full room of bullets rather than the last two enemies, and the low-band information payoff (§3.4) is available during the fight rather than after it.
@@ -229,7 +252,7 @@ The single most-pressed button. Its spec is the spec of the game.
 
 | Property | Value |
 |---|---|
-| Sanity cost | 18 |
+| Sanity cost | **0 — free** (fallback F4; see §3.2) |
 | **Startup** | 2 frames (0.033s) |
 | **Invulnerable window** | frames 3–16 (0.233s) |
 | **Recovery** | frames 17–24 (0.133s) — vulnerable, movement locked to 40% |
@@ -245,7 +268,14 @@ The single most-pressed button. Its spec is the spec of the game.
 - The hitbox becomes fully opaque during i-frames. The player must always be able to see exactly what is invulnerable.
 - Passing through an enemy during i-frames is legal and applies a 0.3s "Marked" debuff (+25% damage taken).
 
-**Why the recovery tail matters:** without it, dodge spam is optimal whenever Sanity allows. The 8-frame vulnerable tail means late dodges into a second volley are punished — timing skill, exactly as in Gungeon, but now with a price tag.
+**Why the recovery tail matters — and it now matters far more.** With the dodge free, the 8-frame vulnerable tail plus the 0.12s cooldown are the *only* thing standing between the player and dodge-spam. The full cycle is **24 frames + 0.12s ≈ 0.52s**, close to Gungeon's ~0.6s, and it must be protected: any sigil or inscription that shortens the recovery tail is now a balance risk of the first order, where previously the Sanity price provided a second brake.
+
+**The skill expression that survives F4 unchanged:**
+- Late dodges into a second volley are punished by the tail. Timing is still the whole game.
+- **Kill during i-frames → ×2 Sanity** (§3.3). Dodging *through* an enemy to kill it is still the high-skill line, and it is now the main way an aggressive player funds their reloads.
+- Passing through an enemy still applies **Marked** (+25% damage taken for 0.3s).
+
+So the dodge is free, but dodging *well* still pays — it simply pays in reload uptime rather than in more dodges.
 
 ---
 

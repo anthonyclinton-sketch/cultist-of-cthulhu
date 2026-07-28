@@ -67,6 +67,20 @@ The **room count is the schedule**. At a sustained 4 finished, playtested rooms 
 
 ### M1 TEST DESIGN — "Is the Sanity economy fun?"
 
+> **[DECISION — 26 Jul 2026] F4 HAS BEEN TAKEN. Blink Step is free.** The fallback ladder below did its job — it was consulted and executed, just pre-emptively rather than after a failed test. The test design is REWRITTEN accordingly below; the original A/B is preserved because it is still the right experiment, with the arms swapped.
+>
+> **What M1 now asks.** The question is no longer *"is the metered dodge fun?"* — that has been answered in the negative on the evidence in [00 §2.2](00-comparative-analysis.md), without spending eight weeks. It is now:
+>
+> **"Does the Sanity economy still bind when dodging is free — and does the ladder ever fire?"**
+>
+> That is a genuinely different and more dangerous question, because F4 removes the dominant sink and leaves the Lucid Ceiling carrying the whole descent ([02 §3.3.1](02-player-and-combat.md)). The plausible failure is no longer "the constraint is annoying" but **"there is no constraint at all, and Pillar III is decoration."**
+>
+> **Arms swapped.** Build A is now free-dodge (shipping default). **Build B is the metered variant** — `Tune.SanityBlinkCost` flipped from 0 to 18, no other change, which is why that constant was kept rather than deleted. Still run both: F4 was chosen on reasoning, not data, and if metric 1 collapses in A while holding in B, that is evidence worth having before committing the next fourteen months.
+>
+> **Metric changes.** Metric 3 (denied-action events) now counts **denied reloads and Banishes**, not denied dodges — instrumented as `DeniedSustainCount`. Metric 2's failure state changes from "empty gun, no dodge, in a bullet wall" to **"empty gun, cannot afford to reload, in a bullet wall"**. Metric 7 inverts: **A ≥ 60% preference now defends the decision already taken**, and B winning means F4 was wrong and should be reverted — which the retained constant makes a one-line change.
+>
+> **New metric 9, and it is the one that matters most:** *does the ladder fire at all?* Percentage of players who reach **Fraying** at least once per floor without deliberately using Open the Eye. **Pass ≥ 70%. Below 40% means the Lucid Ceiling is not carrying the descent** and the decay must steepen before anything else is tuned.
+
 > **[REVIEW — Fable] Written to replace "playtesters play it voluntarily", which is a real signal but not a measurement, and cannot tell you *which part* is wrong. The brief's fallback — "fall back to a conventional stamina bar" — is a direction, not a plan; a pre-committed ladder is below.**
 
 **The one thing that matters: you cannot evaluate a constraint without a control.** A tester who enjoys Build A tells you the game is fun, not that the Sanity economy made it fun. **Build B (free dodge) is a one-line change and it is the single highest-value item in M1.** Run both, counterbalanced order, same testers, ~25 min each.

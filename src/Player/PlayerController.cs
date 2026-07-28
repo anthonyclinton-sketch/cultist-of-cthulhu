@@ -27,10 +27,21 @@ public sealed partial class PlayerController : CharacterBody2D
 
     public int HitsTaken { get; private set; }
 
-    /// <summary>Dodges the player attempted but could not pay for. Metric 3 in the M1
-    /// test design (docs/11) — "denied-action events". Instrumented from day one because
-    /// it is the number that tells us whether players can model the Sanity bar.</summary>
+    /// <summary>
+    /// Actions the player attempted but could not pay for — metric 3 in the M1 test
+    /// design (docs/11), "denied-action events". It is the number that tells us whether
+    /// players can model the Sanity bar.
+    ///
+    /// With a free Blink Step this now counts denied RELOADS and BANISHES rather than
+    /// denied dodges. That is the correct instrument for F4: reload is the primary sink
+    /// now, so "I could not afford to keep shooting" is the failure state that replaces
+    /// "I could not afford to dodge".
+    /// </summary>
     public int DeniedBlinkCount { get; private set; }
+
+    /// <summary>Reloads and Banishes the player could not afford. The F4 equivalent of
+    /// the denied-dodge metric.</summary>
+    public int DeniedSustainCount { get; private set; }
 
     private BulletManager? _bullets;
 
@@ -125,11 +136,16 @@ public sealed partial class PlayerController : CharacterBody2D
     {
         if (!Input.IsActionJustPressed("blink_step")) return;
         if (Phase != BlinkPhase.None && Phase != BlinkPhase.Recovery) return;
+
+        // Blink Step is FREE (fallback F4). The only limiter is the cooldown plus the
+        // 8-frame vulnerable recovery tail — spamming is punished by the tail, not by a
+        // price, which is what makes timing rather than budgeting the skill.
         if (_blinkCooldown > 0f) return;
 
-        if (!Sanity.TrySpend(Tune.SanityBlinkCost))
+        // Cost is 0 by default; TrySpend still runs so that flipping SanityBlinkCost back
+        // to 18 restores the metered variant (Build B) with no code change.
+        if (Tune.SanityBlinkCost > 0f && !Sanity.TrySpend(Tune.SanityBlinkCost))
         {
-            // The intended failure state (docs/02 §3.3): a dodge you cannot pay for.
             DeniedBlinkCount++;
             return;
         }
@@ -201,6 +217,7 @@ public sealed partial class PlayerController : CharacterBody2D
             if (!_banishConsumed && _banishHoldTime < Tune.OpenEyeHoldTime)
             {
                 if (Sanity.TrySpend(Tune.SanityBanishCost)) EmitSignal(SignalName.Banished);
+                else DeniedSustainCount++;
             }
             _banishHoldTime = 0f;
             _banishConsumed = false;
@@ -245,5 +262,6 @@ public sealed partial class PlayerController : CharacterBody2D
         _damageIFrames = 0f;
         HitsTaken = 0;
         DeniedBlinkCount = 0;
+        DeniedSustainCount = 0;
     }
 }

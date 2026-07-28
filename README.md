@@ -1,6 +1,6 @@
 # CULTIST OF CTHULHU
 
-> *A twin-stick roguelike where dodging costs your mind. You are not the hero. You are the one who read the book and kept reading.*
+> *A twin-stick roguelike where the deeper you go, the less of your mind you keep. You are not the hero. You are the one who read the book and kept reading.*
 
 **Engine:** Godot 4.4+ · **Language:** C# (.NET 8) · **Platform:** PC (Windows / Linux / Steam Deck) · **Perspective:** Top-down twin-stick
 
@@ -8,7 +8,7 @@
 
 ## The One-Paragraph Pitch
 
-Beneath Arkham, a door has been open since 1692. You are a cultist who has chosen to walk through it. *Cultist of Cthulhu* is a top-down twin-stick action roguelike — with bullet-hell set pieces on the floors built to carry them — where you fight down through six procedurally assembled Lovecraftian strata: drowned Innsmouth wharfs, the restricted stacks of Miskatonic, the Antarctic ruins, sunken R'lyeh. You are armed with 1920s firearms you have defiled into something worse. Your **Sanity** is both your dodge meter and your reload; it falls further the deeper into a floor you go, and losing it entirely does not kill you — it *changes* you. Your build is not a list of passive items but a physical **summoning circle** you arrange by hand, where the position and facing of every sigil you place changes what it does.
+Beneath Arkham, a door has been open since 1692. You are a cultist who has chosen to walk through it. *Cultist of Cthulhu* is a top-down twin-stick action roguelike — with bullet-hell set pieces on the floors built to carry them — where you fight down through six procedurally assembled Lovecraftian strata: drowned Innsmouth wharfs, the restricted stacks of Miskatonic, the Antarctic ruins, sunken R'lyeh. You are armed with 1920s firearms you have defiled into something worse. Your **Sanity** pays to keep your guns loaded and to unmake what's coming at you, and it falls a little further with every room you clear — losing it entirely does not kill you, it *changes* you. Your build is not a list of passive items but a physical **summoning circle** you arrange by hand, where the position and facing of every sigil you place changes what it does.
 
 ---
 
@@ -35,7 +35,7 @@ Beneath Arkham, a door has been open since 1692. You are a cultist who has chose
 
 ## The Three Ideas That Make This Not A Clone
 
-1. **Sanity is the stamina bar.** Dodging costs sanity. Reloading costs sanity. Panic-clearing the screen costs a lot of sanity. Killing things gives it back — but only up to a **ceiling that falls as you push deeper into a floor**, so the descent is real rather than laundered by the corridor. Low sanity does not make you hit harder; it makes you *see*: enemy weak points, secret rooms, attacks a few frames before they land — and about a quarter of the bullets on screen aren't there. You can also spend sanity to go down on purpose.
+1. **You cannot stop going down.** Dodging is free — the skill is timing, not budgeting. But *reloading* costs sanity, panic-clearing the screen costs a lot of it, and killing things gives it back only up to a **ceiling that falls every room you clear**. So the descent happens to you regardless of how well you play; what you control is how fast, and what you buy on the way. Low sanity doesn't make you hit harder — it makes you *see*: enemy weak points, secret rooms, attacks a few frames before they land. And about a quarter of the bullets on screen aren't there.
 
 2. **Your build is a physical object.** Items are tetromino-shaped sigils you place on a summoning circle. Adjacency creates synergies. Ley lines multiply what sits on them. Rotation changes firing direction. *Enter the Gungeon*'s hidden synergies become a spatial puzzle the player authors deliberately.
 

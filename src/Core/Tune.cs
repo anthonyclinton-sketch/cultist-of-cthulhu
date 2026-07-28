@@ -39,7 +39,16 @@ public static class Tune
     // ---------------------------------------------------------------- Sanity (docs/02 §3)
 
     public const float SanityMax = 100f;
-    public const float SanityBlinkCost = 18f;
+
+    /// <summary>
+    /// ZERO — Blink Step is free (fallback F4, docs/11 M1 test design).
+    ///
+    /// Kept as a named constant rather than deleted because the metered-dodge variant is
+    /// still the thing M1 measures against; Build B flips this to 18 and changes nothing
+    /// else. Deleting it would make the A/B a code fork instead of a config change.
+    /// </summary>
+    public const float SanityBlinkCost = 0f;
+
     public const float SanityReciteCostPerWeight = 12f;
     public const float SanityBanishCost = 45f;
     public const float SanityHitCost = 10f;
@@ -51,9 +60,18 @@ public static class Tune
     public const float SanityInCombatRegen = 0f;         // deliberate — docs/02 §3.3
 
     // --- Lucid Ceiling (docs/02 §3.3.1) — the descent arc. Regen refills only to here.
+    //
+    // With a free Blink Step the ceiling is now the PRIMARY driver of the descent rather
+    // than a secondary one: dodging was the dominant Sanity sink, and without it spending
+    // alone can no longer carry a player down the ladder. Decay steepened from 5 to 7 and
+    // the floor lowered from 50 to 45 so that late-floor rooms reliably START in Unsettled
+    // and end in Fraying. Without this change Pillar III would effectively never fire.
+    //
+    // These two numbers are the primary M1 tuning lever. The governing metric is
+    // time-in-band (docs/11 metric 1, target 25-45% of combat below 40 Sanity).
     public const float LucidCeilingStart = 100f;
-    public const float LucidCeilingDecayPerRoom = 5f;
-    public const float LucidCeilingFloor = 50f;
+    public const float LucidCeilingDecayPerRoom = 7f;
+    public const float LucidCeilingFloor = 45f;
 
     // --- Band hysteresis (docs/02 §3.5.2) — lets a chosen band be HELD.
     public const float BandHysteresis = 8f;

@@ -26,11 +26,20 @@ The game must be **legible at a glance and unfathomable at depth**: a new player
 
 Every feature must serve at least one. Features serving none are cut without discussion.
 
-### Pillar I — *Every dodge is a purchase*
-Defence costs the same resource as offence. There is no free safety. The game's skill expression is **resource rhythm**: when to spend Sanity on survival versus firepower, and when to stop dodging and simply move well.
+### Pillar I — *You cannot stop going down*
 
-*Serves:* combat depth, aggression incentive, differentiation from Gungeon.
-*Kills:* free i-frames, passive regeneration in combat, "get out of jail" consumables that cost nothing.
+> **[DECISION — 26 Jul 2026] This pillar replaces "Every dodge is a purchase". Blink Step is now FREE.** This is fallback **F4**, pre-committed in [11 §M1](11-roadmap.md) and taken early rather than after a failed playtest. Rationale in [00 §2.2](00-comparative-analysis.md): the mechanic was Pathogenic's most criticised system and its original justification — throttling ten auto-firing weapons — does not apply to a game carrying three weapons and firing one.
+
+**Defence is free; sustain, panic and perception are not; and the descent happens to you regardless.**
+
+- **Blink Step costs nothing.** Its limiter is the cooldown and the 8-frame vulnerable recovery tail, so the skill is *timing*, not budgeting.
+- **Sanity still buys everything else**: Recitation (reload), Banish, and Open the Eye. Reload is now the primary sink, which means **weapon choice is the main Sanity decision** — a Nitro Express at reload weight 2.0 costs 24 Sanity a magazine and genuinely changes how much of the ladder you see.
+- **The Lucid Ceiling drives the descent.** Sanity falls as the floor progresses whatever you do. You do not choose *whether* to go down, only how fast and what you buy on the way.
+
+*Serves:* theme–mechanic unity, weapon identity, an honest skill curve, the inevitability the fiction is about.
+*Kills:* in-combat regeneration, effects that raise the ceiling for free, "get out of jail" consumables that cost nothing.
+
+**What this pillar gave up, stated plainly:** the game no longer differentiates from *Enter the Gungeon* on the dodge. It differentiates on the Sigil Circle, on Corruption, and on a descent the player cannot opt out of. That is a narrower claim than the original design made, and an honest one.
 
 ### Pillar II — *The build is a thing you can see and touch*
 No hidden stats. No invisible synergies. The player's power is a physical arrangement on a summoning circle that they authored deliberately and can re-author at any time.
