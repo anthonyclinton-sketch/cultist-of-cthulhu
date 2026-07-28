@@ -1,11 +1,16 @@
 <#
-    M0 gate runner (docs/11 §2).
+    Gate runner and launcher (docs/11 §2).
 
-        ./tools/gates.ps1              run both gates
-        ./tools/gates.ps1 -Play        launch the interactive stress arena
-        ./tools/gates.ps1 -Seed 12345  fix the seed
+        ./tools/gates.ps1                       run every gate
+        ./tools/gates.ps1 -Arena                play the M1 combat slice
+        ./tools/gates.ps1 -Arena -MeteredDodge  play Build B (the M1 control arm)
+        ./tools/gates.ps1 -Play                 the bullet stress arena
+        ./tools/gates.ps1 -Lab                  the Pattern Lab
+        ./tools/gates.ps1 -ShowSeed 7           render one generated floor as ASCII
+        ./tools/gates.ps1 -Seed cthulhu         fix the seed (any text, hashed)
+        ./tools/gates.ps1 -SkipBuild            skip the C# build
 
-    Both gates exit non-zero on failure so this script is CI-consumable as-is.
+    Every gate exits non-zero on failure, so this script is CI-consumable as-is.
 #>
 [CmdletBinding()]
 param(
@@ -13,6 +18,7 @@ param(
     [switch]$Play,
     [switch]$Arena,
     [switch]$Lab,
+    [string]$ShowSeed,
     [switch]$MeteredDodge,
     [switch]$SkipBuild
 )
@@ -53,6 +59,14 @@ if ($Arena) {
     exit $LASTEXITCODE
 }
 if ($Lab)   { & $godot --path $root res://scenes/debug/PatternLab.tscn  --seed $Seed; exit $LASTEXITCODE }
+
+if ($ShowSeed) {
+    # The Generation Visualiser (docs/06 §10). Note the arg form is --show-seed=N with an
+    # equals sign — GenerationTest parses it as a single token, so passing it as two
+    # arguments silently falls through to the full 10k sweep instead.
+    & $godot --headless --path $root res://scenes/debug/GenerationTest.tscn "--show-seed=$ShowSeed"
+    exit $LASTEXITCODE
+}
 
 $failed = @()
 
