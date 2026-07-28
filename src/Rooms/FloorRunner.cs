@@ -63,6 +63,7 @@ public sealed partial class FloorRunner : Node2D
         BuildPlayer();
         BuildCameraAndUi();
 
+        ParseScreenshotArgs();
         EnterRoom(_floor.FindRole(RoomRole.Entrance)!.NodeId);
 
         GD.Print($"[FloorRunner] {_floor.Rooms.Count} rooms, flow '{_floor.FlowId}'. " +
@@ -225,6 +226,7 @@ public sealed partial class FloorRunner : Node2D
 
         QueueRedraw();
         HandleDebugKeys();
+        TickScreenshot();
     }
 
     /// <summary>
@@ -480,6 +482,84 @@ public sealed partial class FloorRunner : Node2D
         PlacedRoom entrance = _floor.FindRole(RoomRole.Entrance)!;
         _player.ResetForTest(_geometry.RoomCentreWorld(entrance));
         EnterRoom(entrance.NodeId);
+    }
+
+    // ---------------------------------------------------------------- Visual capture
+    //
+    // --screenshot=<path> renders a frame to PNG and quits. Every rendering bug in this
+    // project so far (invisible player, and now invisible bullets) was invisible to the
+    // gates too, because a headless run has no framebuffer and a passing smoke test proves
+    // only that nothing threw. This is the cheapest way to actually LOOK at a frame
+    // without a human in the loop.
+    //
+    // It fires a fan of player bullets first, because the thing most often worth checking
+    // is whether projectiles render at all.
+
+    private string _screenshotPath = "";
+    private int _screenshotAfter = 40;
+    private bool _meleeDemo;
+    private int _frameCount;
+
+    private void ParseScreenshotArgs()
+    {
+        foreach (string arg in OS.GetCmdlineArgs())
+        {
+            if (arg.StartsWith("--screenshot=")) _screenshotPath = arg["--screenshot=".Length..];
+            else if (arg.StartsWith("--screenshot-after="))
+                _screenshotAfter = int.TryParse(arg["--screenshot-after=".Length..], out int n) ? n : 40;
+            else if (arg == "--melee-demo") _meleeDemo = true;
+        }
+    }
+
+    private void TickScreenshot()
+    {
+        if (_screenshotPath.Length == 0) return;
+        _frameCount++;
+
+        // Put bullets on screen a few frames before the capture.
+        if (_frameCount == _screenshotAfter - 12)
+        {
+            // Hold FIRE and let the real weapon path run. Spawning bullets by hand only
+            // proved the renderer works; it could not tell us whether the gun does.
+            if (_meleeDemo)
+            {
+                for (int i = 0; i < _player.Weapons.Count; i++)
+                    if (_player.Weapons.Weapons[i].Data.IsMelee) _player.Weapons.SetActive(i);
+                GD.Print("[screenshot] melee demo — swapped to the melee weapon");
+            }
+            Input.ActionPress("fire");
+            GD.Print("[screenshot] holding fire — exercising the real weapon path");
+        }
+
+        if (_frameCount != _screenshotAfter) return;
+
+        // Fire EVERY carried weapon in turn and report what each produced. "I can't see my
+        // bullets" is weapon-specific far more often than it is renderer-specific, and
+        // testing only the starter would have missed that entirely.
+        GD.Print($"[screenshot] melee swing state at capture: {_player.MeleeSwing:F2} " +
+                 $"(reach {_player.MeleeSwingReach:F0}px, arc {_player.MeleeSwingArc:F0}deg)");
+        GD.Print("[screenshot] --- per-weapon fire test ---");
+        for (int i = 0; i < _player.Weapons.Count; i++)
+        {
+            _player.Weapons.SetActive(i);
+            Weapon w = _player.Weapons.Active;
+            _playerBullets.Clear();
+            _player.Sanity.DebugSetCurrent(Tune.SanityMax);
+
+            for (int f = 0; f < 40; f++) _player._PhysicsProcess(1.0 / 60.0);
+
+            GD.Print($"  [{i}] {w.Data.DisplayName,-22} family {w.Data.Family,-12} " +
+                     $"melee {w.Data.IsMelee,-5} mag {w.Magazine}/{w.Data.MagazineSize}  " +
+                     $"-> {_playerBullets.Count} bullets");
+        }
+        _player.Weapons.SetActive(0);
+
+        Input.ActionRelease("fire");
+
+        Image img = GetViewport().GetTexture().GetImage();
+        Error err = img.SavePng(_screenshotPath);
+        GD.Print($"[screenshot] {_screenshotPath} → {err}");
+        GetTree().Quit(err == Error.Ok ? 0 : 1);
     }
 
     /// <summary>Engine.TimeScale is global state. Leaving a scene mid-hit-stop would

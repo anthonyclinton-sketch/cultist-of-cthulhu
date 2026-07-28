@@ -133,6 +133,11 @@ public sealed partial class PlayerController : CharacterBody2D
         if (_contactDamageCooldown > 0f) _contactDamageCooldown -= dt;
         if (_banishCooldown > 0f) _banishCooldown -= dt;
         if (BanishPulse > 0f) BanishPulse = Mathf.Max(0f, BanishPulse - dt * 3.5f);
+        // Decay slower than the fire rate, or the swing is invisible between attacks. At
+        // 7/s the arc lasted 0.14s against the Kris's 0.33s cycle, so feedback was absent
+        // more than half the time and flickered when it did appear. 3.2/s keeps the arc up
+        // for most of the cycle, which is what makes melee readable as continuous action.
+        if (MeleeSwing > 0f) MeleeSwing = Mathf.Max(0f, MeleeSwing - dt * 3.2f);
 
         _timeSinceLastKill += dt;
         if (_timeSinceLastKill > ChainWindow) _chainStep = 0;
@@ -514,7 +519,18 @@ public sealed partial class PlayerController : CharacterBody2D
 
         if (Input.IsActionPressed("fire"))
         {
-            Weapons.TryFire(GlobalPosition, AimDirection, PlayerBullets, Sanity, Enemies, _rng);
+            bool fired = Weapons.TryFire(GlobalPosition, AimDirection, PlayerBullets, Sanity, Enemies, _rng);
+
+            // Melee emits no projectile, so without an explicit swing signal it produces
+            // no feedback at all — swapping to it reads as the gun having broken. This is
+            // the ONLY thing telling the player a melee attack happened.
+            if (fired && Weapons.Active.Data.IsMelee)
+            {
+                MeleeSwing = 1f;
+                MeleeSwingDirection = AimDirection;
+                MeleeSwingReach = Weapons.Active.Data.MeleeReach;
+                MeleeSwingArc = Weapons.Active.Data.MeleeArcDegrees;
+            }
         }
 
         if (Input.IsActionJustPressed("recite"))
@@ -599,6 +615,12 @@ public sealed partial class PlayerController : CharacterBody2D
         BanishOrigin = GlobalPosition;
         EmitSignal(SignalName.Banished);
     }
+
+    /// <summary>1 → 0 over the melee swing animation. Drawn by PlayerVisual.</summary>
+    public float MeleeSwing { get; private set; }
+    public Vector2 MeleeSwingDirection { get; private set; } = Vector2.Right;
+    public float MeleeSwingReach { get; private set; } = 40f;
+    public float MeleeSwingArc { get; private set; } = 100f;
 
     /// <summary>1 → 0 over the shockwave animation. Drives the expanding ring.</summary>
     public float BanishPulse { get; private set; }

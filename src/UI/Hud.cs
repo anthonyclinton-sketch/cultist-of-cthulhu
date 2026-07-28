@@ -166,6 +166,32 @@ public sealed partial class Hud : Node2D
         DrawString(font, origin, w.Data.DisplayName, HorizontalAlignment.Right, 180, 11,
                    new Color(0.9f, 0.87f, 0.82f));
 
+        // Say what KIND of weapon this is, prominently.
+        //
+        // Melee and Grimoires behave nothing like a gun — one fires no projectile at all,
+        // the other spends Sanity per shot — and with only a name shown, swapping onto the
+        // melee weapon reads as the gun having broken. It was reported exactly that way.
+        if (w.Data.IsMelee)
+        {
+            DrawString(font, origin + new Vector2(0, 42), "MELEE  ·  no projectiles",
+                       HorizontalAlignment.Right, 180, 9, new Color("FFB347"));
+        }
+        else if (w.Data.SanityPerShot > 0f)
+        {
+            DrawString(font, origin + new Vector2(0, 42),
+                       $"GRIMOIRE  ·  {w.Data.SanityPerShot:F0} sanity/shot",
+                       HorizontalAlignment.Right, 180, 9, new Color("7FE0D4"));
+        }
+
+        // Slot indicator, so it is obvious that Q swapped something.
+        int slots = Player.Weapons.Count;
+        for (int i = 0; i < slots; i++)
+        {
+            var r = new Rect2(origin + new Vector2(180 - (slots - i) * 9f, -12f), new Vector2(6f, 3f));
+            DrawRect(r, ReferenceEquals(Player.Weapons.Weapons[i], w)
+                ? new Color("FFB347") : new Color(0.3f, 0.29f, 0.28f));
+        }
+
         // Magazine as discrete pips, never a bar — pips are countable at a glance
         // (docs/10 §3).
         if (!w.Data.IsMelee && w.Data.SanityPerShot <= 0f)

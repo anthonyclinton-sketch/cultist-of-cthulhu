@@ -57,6 +57,8 @@ public sealed partial class PlayerVisual : Node2D
         DrawCircle(Vector2.Zero, BodyRadius, bodyColour);
         DrawArc(Vector2.Zero, BodyRadius, 0, Mathf.Tau, 20, new Color(0, 0, 0, 0.5f), 1.5f);
 
+        DrawMeleeSwing();
+
         // Aim indicator — without it there is no way to tell which way you are shooting.
         Vector2 aim = Controller.AimDirection;
         DrawLine(aim * (BodyRadius - 1f), aim * (BodyRadius + 7f), AimColour, 2f);
@@ -66,6 +68,46 @@ public sealed partial class PlayerVisual : Node2D
                    invuln ? HitboxInvuln : Hitbox with { A = 0.8f });
 
         // Damage flash — 12Hz, docs/02 §2.
+        DrawDamageFlash();
+    }
+
+    /// <summary>
+    /// The melee swing arc.
+    ///
+    /// Melee emits no projectile, so before this existed a player who pressed Q onto the
+    /// Sacrificial Kris saw *nothing at all* happen when they attacked — reported, exactly
+    /// as you would expect, as "I can no longer see my bullets".
+    ///
+    /// Drawn at the weapon's REAL reach and arc, not a decorative approximation, so the
+    /// player learns the actual hitbox by looking at it. Melee is a spacing weapon
+    /// (docs/03 §2 Family V) and spacing cannot be judged from a swoosh that lies.
+    /// </summary>
+    private void DrawMeleeSwing()
+    {
+        float t = Controller.MeleeSwing;
+        if (t <= 0f) return;
+
+        float reach = Controller.MeleeSwingReach;
+        float half = Mathf.DegToRad(Controller.MeleeSwingArc) * 0.5f;
+        float centre = Mathf.Atan2(Controller.MeleeSwingDirection.Y, Controller.MeleeSwingDirection.X);
+
+        // Sweeps across the arc as it fades, so the swing has direction rather than
+        // appearing as a symmetrical flash.
+        float sweep = Mathf.Lerp(-half, half, 1f - t);
+        float alpha = t * 0.9f;
+
+        DrawArc(Vector2.Zero, reach, centre - half, centre + half, 24,
+                new Color(1f, 0.85f, 0.6f, alpha * 0.45f), 3f);
+        DrawArc(Vector2.Zero, reach * 0.72f, centre - half, centre + half, 24,
+                new Color(1f, 0.95f, 0.8f, alpha * 0.25f), 2f);
+
+        // The leading edge of the blade.
+        var edge = new Vector2(Mathf.Cos(centre + sweep), Mathf.Sin(centre + sweep));
+        DrawLine(edge * (BodyRadius * 0.5f), edge * reach, new Color(1f, 1f, 0.9f, alpha), 2.5f);
+    }
+
+    private void DrawDamageFlash()
+    {
         if (Controller.DamageIFramesRemaining > 0f
             && Mathf.PosMod(Controller.DamageIFramesRemaining * 12f, 1f) > 0.5f)
         {
