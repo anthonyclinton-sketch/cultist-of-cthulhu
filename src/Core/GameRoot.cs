@@ -50,6 +50,7 @@ public sealed partial class GameRoot : Node
     {
         string[] args = OS.GetCmdlineArgs();
         ulong? seed = null;
+        bool metered = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -65,7 +66,16 @@ public sealed partial class GameRoot : Node
             {
                 HeadlessTestMode = true;
             }
+            else if (args[i] == "--metered-dodge")
+            {
+                metered = true;
+            }
         }
+
+        // Build B — the M1 control arm (docs/11 §M1 test design).
+        Tune.SetMeteredDodge(metered);
+        if (metered) GD.Print("[GameRoot] BUILD B — metered dodge, Blink Step costs " +
+                              $"{Tune.SanityBlinkCostMetered:F0} Sanity.");
 
         RunSeed = seed ?? NewRandomSeed();
     }

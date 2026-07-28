@@ -63,13 +63,28 @@ public static class Tune
     public const float SanityMax = 100f;
 
     /// <summary>
-    /// ZERO — Blink Step is free (fallback F4, docs/11 M1 test design).
+    /// Build A (shipping): ZERO — Blink Step is free (fallback F4, docs/11 M1 test design).
+    /// Build B (control arm): 18, via <c>--metered-dodge</c>.
     ///
-    /// Kept as a named constant rather than deleted because the metered-dodge variant is
-    /// still the thing M1 measures against; Build B flips this to 18 and changes nothing
-    /// else. Deleting it would make the A/B a code fork instead of a config change.
+    /// NOT a const, because the M1 test design needs both arms runnable from one binary.
+    /// Forcing a rebuild between arms pushes testers into separate blocks and loses the
+    /// counterbalanced ordering — same tester, both builds, order alternated — which is
+    /// the whole reason the control arm has any statistical value.
     /// </summary>
-    public const float SanityBlinkCost = 0f;
+    public static float SanityBlinkCost { get; private set; }
+
+    /// <summary>The metered-dodge cost, restored by Build B.</summary>
+    public const float SanityBlinkCostMetered = 18f;
+
+    /// <summary>True when running the control arm. Recorded in telemetry so a CSV can
+    /// never be attributed to the wrong build.</summary>
+    public static bool MeteredDodge { get; private set; }
+
+    public static void SetMeteredDodge(bool enabled)
+    {
+        MeteredDodge = enabled;
+        SanityBlinkCost = enabled ? SanityBlinkCostMetered : 0f;
+    }
 
     public const float SanityReciteCostPerWeight = 12f;
     public const float SanityBanishCost = 45f;

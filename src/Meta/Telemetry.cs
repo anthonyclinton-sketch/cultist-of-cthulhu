@@ -159,6 +159,8 @@ public sealed class Telemetry
 
         var sb = new StringBuilder();
         sb.AppendLine("--- M1 METRICS (docs/11 M1 test design) ---");
+        sb.AppendLine($" BUILD {(Core.Tune.MeteredDodge ? "B - METERED DODGE (control arm)" : "A - FREE DODGE (shipping)")}" +
+                      $"   blink cost {Core.Tune.SanityBlinkCost:F0}");
         sb.AppendLine($" rooms                {_rooms.Count}   session {SessionDuration:F0}s");
         sb.AppendLine($" 1. time below 40     {below * 100:F1}%   target 25-45%      [{Verdict(below is >= 0.25f and <= 0.45f)}]");
         sb.AppendLine($" 5. median net/room   {net:+0.0;-0.0}      target -15..+15    [{Verdict(net is >= -15f and <= 15f)}]");
@@ -178,6 +180,13 @@ public sealed class Telemetry
     public void WriteCsv(string path = "user://m1_telemetry.csv")
     {
         var sb = new StringBuilder();
+        // Build tag first. A telemetry file that cannot be attributed to an arm is worthless
+        // for an A/B, and "which build was this?" is exactly the thing nobody remembers a
+        // week later.
+        sb.AppendLine($"# build={(Core.Tune.MeteredDodge ? "B-metered-dodge" : "A-free-dodge")}," +
+                      $"seed={Core.Hash.FormatSeed(Core.GameRoot.Instance.RunSeed)}," +
+                      $"blink_cost={Core.Tune.SanityBlinkCost:F0}," +
+                      $"ceiling_floor={Core.Tune.LucidCeilingFloor:F0}");
         sb.AppendLine("room,duration,sanity_start,sanity_end,sanity_min,income,spend,ceiling," +
                       "kills,hits,denied_sustain,reloads,reloads_denied,perfect,failed," +
                       "t_lucid,t_unsettled,t_fraying,t_unravelled,ladder_fired,ascensions," +

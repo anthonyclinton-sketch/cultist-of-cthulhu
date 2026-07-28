@@ -13,6 +13,7 @@ param(
     [switch]$Play,
     [switch]$Arena,
     [switch]$Lab,
+    [switch]$MeteredDodge,
     [switch]$SkipBuild
 )
 
@@ -45,7 +46,12 @@ if (-not $SkipBuild) {
 }
 
 if ($Play)  { & $godot --path $root res://scenes/debug/StressTest.tscn  --seed $Seed; exit $LASTEXITCODE }
-if ($Arena) { & $godot --path $root res://scenes/debug/CombatArena.tscn --seed $Seed; exit $LASTEXITCODE }
+if ($Arena) {
+    # -MeteredDodge runs Build B, the M1 control arm (docs/11 §M1 test design).
+    $extra = if ($MeteredDodge) { @("--metered-dodge") } else { @() }
+    & $godot --path $root res://scenes/debug/CombatArena.tscn --seed $Seed @extra
+    exit $LASTEXITCODE
+}
 if ($Lab)   { & $godot --path $root res://scenes/debug/PatternLab.tscn  --seed $Seed; exit $LASTEXITCODE }
 
 $failed = @()
@@ -61,6 +67,10 @@ if ($LASTEXITCODE -ne 0) { $failed += "ascension invariants" }
 Write-Host "`n### BANISH ###"
 & $godot --headless --path $root res://scenes/debug/BanishTest.tscn
 if ($LASTEXITCODE -ne 0) { $failed += "banish" }
+
+Write-Host "`n### FLOOR GENERATION (10k seeds) ###"
+& $godot --headless --path $root res://scenes/debug/GenerationTest.tscn
+if ($LASTEXITCODE -ne 0) { $failed += "floor generation" }
 
 # Advisory, not a gate. These are tuning targets — drifting out of them should start a
 # conversation, not break the build.
