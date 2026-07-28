@@ -403,8 +403,19 @@ Corruption is *almost* one-way, on purpose. Only two sinks:
 
 | Element | Spec |
 |---|---|
-| **Hit stop** (player hits enemy) | 40ms at 0.05× time scale, scaled by damage tier |
-| **Hit stop** (player takes damage) | 90ms + 0.25s slow-mo ramp back |
+| **Hit stop** (player hits enemy) | ~35–70ms at **0.20×** time scale, sub-linear in kill count *(was 0.05×)* |
+| **Hit stop** (player takes damage) | 60ms at 0.20× |
+| **Hit stop refractory** | 100ms minimum gap between stops |
+
+> **[PLAYTEST — 26 Jul 2026] 0.05× reads as a freeze, not a punch. Default is now 0.20×.**
+>
+> Reported twice: first as apparent lag on every kill (that was a real bug — the timer counted down using the *scaled* delta, so a 40ms stop ran for 800ms), and then again as still too heavy once the duration was correct.
+>
+> **Two things were wrong beyond the timer bug:**
+> 1. **Depth.** 0.05× is a 95% slowdown; at any duration the eye reads it as a stop rather than an impact. 0.20× lands as a hitch.
+> 2. **Compounding.** Kills on consecutive ticks each extended the stop, so a shotgun clearing three enemies produced one long smear and a busy room became continuous stutter. Each individual stop was correct — the accumulation was not. A 100ms refractory window now means impact *punctuates* rather than *accumulates*.
+>
+> **This is taste, so it is a live knob, not a constant.** `F7` cycles Off → Feather (0.55×) → Light (0.35×) → Standard (0.20×) → Heavy (0.05×, the original spec) in any playable scene, and the current setting shows in the F3 overlay. Numbers written into a design doc by someone who has not played the build are a starting point, not an answer.
 | Screen shake | Trauma-based (`trauma²` decay). Cap 6px. Fully disableable. |
 | Damage numbers | **Off by default.** Optional. Bullet hell readability beats feedback text. |
 | Enemy hit flash | 2 frames pure white, then 4 frames additive tint |

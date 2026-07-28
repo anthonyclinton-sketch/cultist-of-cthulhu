@@ -19,8 +19,42 @@ namespace CultistOfCthulhu.Core;
 /// </summary>
 public sealed class HitStop
 {
-    /// <summary>docs/02 §8 — the specified dip. Deep, but only for a few frames.</summary>
-    public const float Scale = 0.05f;
+    /// <summary>
+    /// How far time slows during a stop. Lower is heavier.
+    ///
+    /// docs/02 §8 specified 0.05x, and in play that reads as a hard stop rather than a
+    /// punch — 95% slowdown is close enough to a freeze that the eye calls it one, even at
+    /// a correct 35ms. **Default is now 0.20x**, which lands as a hitch.
+    ///
+    /// This is taste, not correctness, so it is a live knob rather than a constant: cycle
+    /// presets with F7 in any playable scene and the game prints what it switched to.
+    /// </summary>
+    public static float Scale { get; private set; } = 0.20f;
+
+    public enum Preset { Off, Feather, Light, Standard, Heavy }
+
+    private static readonly (Preset p, float scale, string label)[] Presets =
+    {
+        (Preset.Off,      1.00f, "off — no time dip at all"),
+        (Preset.Feather,  0.55f, "feather — barely perceptible"),
+        (Preset.Light,    0.35f, "light — a nudge"),
+        (Preset.Standard, 0.20f, "standard — a hitch (default)"),
+        (Preset.Heavy,    0.05f, "heavy — a hard stop (the original spec)"),
+    };
+
+    private static int _presetIndex = 3;
+
+    public static Preset Current => Presets[_presetIndex].p;
+    public static string CurrentLabel => Presets[_presetIndex].label;
+
+    /// <summary>Cycle to the next preset and return a description. Bound to F7.</summary>
+    public static string CyclePreset()
+    {
+        _presetIndex = (_presetIndex + 1) % Presets.Length;
+        Scale = Presets[_presetIndex].scale;
+        Enabled = Presets[_presetIndex].p != Preset.Off;
+        return $"hit stop: {Presets[_presetIndex].label}  (scale {Scale:F2})";
+    }
 
     /// <summary>
     /// Ceiling on a single stop. Multi-kills previously summed linearly (0.04 x kills), so
@@ -33,16 +67,34 @@ public sealed class HitStop
     /// Time-scale effects are a common motion-sensitivity complaint.</summary>
     public static bool Enabled = true;
 
+    /// <summary>
+    /// Minimum real time between the END of one stop and the start of the next.
+    ///
+    /// Without it, kills landing on consecutive ticks each push the end-time out, so a
+    /// shotgun clearing three enemies produces one long smear instead of three thumps —
+    /// and a busy room becomes continuous stutter. Each individual stop was correct; it
+    /// was the compounding that read as heavy.
+    /// </summary>
+    private const float RefractorySeconds = 0.10f;
+
     private ulong _endUsec;
+    private ulong _readyUsec;
 
     public bool Active => Enabled && Time.GetTicksUsec() < _endUsec;
 
-    /// <summary>Request a stop. Longer requests win; shorter ones never cut one short.</summary>
+    /// <summary>
+    /// Request a stop. Ignored while one is already running or inside the refractory
+    /// window — impact should punctuate, not accumulate.
+    /// </summary>
     public void Request(float seconds)
     {
-        if (seconds <= 0f) return;
-        ulong end = Time.GetTicksUsec() + (ulong)(Mathf.Min(seconds, MaxSeconds) * 1_000_000f);
-        if (end > _endUsec) _endUsec = end;
+        if (seconds <= 0f || !Enabled) return;
+
+        ulong now = Time.GetTicksUsec();
+        if (now < _endUsec || now < _readyUsec) return;
+
+        _endUsec = now + (ulong)(Mathf.Min(seconds, MaxSeconds) * 1_000_000f);
+        _readyUsec = _endUsec + (ulong)(RefractorySeconds * 1_000_000f);
     }
 
     /// <summary>Call once per tick. Applies or releases the time scale.</summary>
@@ -51,6 +103,7 @@ public sealed class HitStop
     public void Clear()
     {
         _endUsec = 0;
+        _readyUsec = 0;
         Engine.TimeScale = 1.0;
     }
 

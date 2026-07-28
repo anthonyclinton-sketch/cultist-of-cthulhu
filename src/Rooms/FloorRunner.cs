@@ -49,6 +49,7 @@ public sealed partial class FloorRunner : Node2D
     private int _pendingSealRoom = -1;
     private bool _encounterActive;
     private readonly HitStop _hitStop = new();
+    private bool _f7Held;
     private int _roomsCleared;
 
     public override void _Ready()
@@ -548,6 +549,11 @@ public sealed partial class FloorRunner : Node2D
             GD.Print(_telemetry.Summary());
             _telemetry.WriteCsv();
         }
+        // F7 cycles hit-stop weight. It is a taste parameter, so it gets a live knob rather
+        // than a constant someone has to guess at from a description.
+        if (Input.IsKeyPressed(Key.F7) && !_f7Held) GD.Print($"[feel] {HitStop.CyclePreset()}");
+        _f7Held = Input.IsKeyPressed(Key.F7);
+
         if (Input.IsKeyPressed(Key.G)) _player.Sanity.DebugSetCurrent(Tune.SanityMax);
         if (Input.IsKeyPressed(Key.K) && !_player.Ascension.IsAscended) _player.Sanity.Drain(999f);
     }

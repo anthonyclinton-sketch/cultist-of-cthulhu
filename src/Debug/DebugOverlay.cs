@@ -146,6 +146,8 @@ public sealed partial class DebugOverlay : CanvasLayer
             $"chain        step {_player.ChainStep} (+{Mathf.Min(_player.ChainStep * 2, 10)} sanity)   " +
             $"last kill {(_player.LastKillDuringIFrames ? "x2 IN I-FRAMES" : "normal")}\n" +
             $"hits taken   {_player.HitsTaken}   denied sustain {_player.DeniedSustainCount}   " +
-            $"corruption {_player.Corruption:F2}   trauma {_player.Trauma:F2}";
+            $"corruption {_player.Corruption:F2}   trauma {_player.Trauma:F2}\n" +
+            $"feel         hit stop {Core.HitStop.CurrentLabel}  (F7 cycles)   " +
+            $"shake {(_player.ScreenShakeEnabled ? "on" : "off")}";
     }
 }
