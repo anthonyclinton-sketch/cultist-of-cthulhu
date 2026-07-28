@@ -30,6 +30,19 @@ public sealed partial class PlayerController : CharacterBody2D
     /// Ascension's cost is actually recorded rather than silently dropped.</summary>
     public float Corruption { get; private set; }
 
+    /// <summary>docs/02 §2 — each absorbs one hit of any size, including its Sanity cost.</summary>
+    public int Armour { get; private set; }
+    public int ArmourAbsorbed { get; private set; }
+
+    /// <summary>No sink until the shop lands at M2; tracked so the economy simulation has
+    /// real numbers to check against docs/08 §8 when it does.</summary>
+    public int Gold { get; private set; }
+    public int Keys { get; private set; }
+
+    public int CandlesCollected { get; private set; }
+
+    public Items.PickupManager? Pickups { get; set; }
+
     public BlinkPhase Phase { get; private set; } = BlinkPhase.None;
     public bool IsInvulnerable =>
         Ascension.IsAscended || Phase == BlinkPhase.Invulnerable || _damageIFrames > 0f;
@@ -129,9 +142,62 @@ public sealed partial class PlayerController : CharacterBody2D
         Sanity.Tick(dt);
 
         CollectKillRewards();
+        CollectPickups();
         PublishToBulletManagers();
         ConsumeIncomingHits();
         ConsumeContactDamage();
+    }
+
+    /// <summary>
+    /// Apply anything walked over this tick (docs/06 §6.3).
+    ///
+    /// The candle is the one that matters: it uses GainPiercing, so it is the ONLY source
+    /// that can push Sanity back above the Lucid Ceiling (docs/02 §3.3.1). Everything else
+    /// in the economy pushes down across a floor. Routing it through the normal
+    /// ceiling-respecting path would silently make it a no-op late in a floor — exactly
+    /// when it is supposed to matter most.
+    /// </summary>
+    private void CollectPickups()
+    {
+        if (Pickups is null) return;
+        Pickups.PlayerPosition = GlobalPosition;
+
+        if (Pickups.CollectedSanity > 0f)
+        {
+            Sanity.GainPiercing(Pickups.CollectedSanity);
+            Telemetry?.NoteSanityIncome(Pickups.CollectedSanity);
+            Telemetry?.NoteCandle();
+            CandlesCollected++;
+        }
+
+        if (Pickups.CollectedHearts > 0f) Heal(Pickups.CollectedHearts);
+        if (Pickups.CollectedArmour > 0) Armour = Mathf.Min(Tune.MaxArmour, Armour + Pickups.CollectedArmour);
+        if (Pickups.CollectedGold > 0) Gold += Pickups.CollectedGold;
+        if (Pickups.CollectedKeys > 0) Keys += Pickups.CollectedKeys;
+
+        if (Pickups.CollectedAmmo > 0)
+        {
+            // Percentage of max reserve rather than a flat count, so a heavy weapon is not
+            // starved by the same pickup that fully refills a pistol (docs/03 §1.2).
+            foreach (Weapon w in Weapons.Weapons)
+                w.AddReserve(Mathf.Max(1, Mathf.RoundToInt(w.Data.TotalReserveRounds * 0.30f)));
+        }
+    }
+
+    /// <summary>Total reserve across all weapons, as a fraction. Feeds the ammo pity
+    /// counter in DropTable.</summary>
+    public float TotalReserveFraction()
+    {
+        if (Weapons.Count == 0) return 1f;
+        float sum = 0f;
+        int counted = 0;
+        foreach (Weapon w in Weapons.Weapons)
+        {
+            if (w.Data.IsBoundArm || w.Data.IsMelee || w.Data.SanityPerShot > 0f) continue;
+            sum += w.ReserveFraction;
+            counted++;
+        }
+        return counted == 0 ? 1f : sum / counted;
     }
 
     // ---------------------------------------------------------------- Feel (docs/02 §8)
@@ -606,9 +672,25 @@ public sealed partial class PlayerController : CharacterBody2D
     private void TakeHit(float hearts)
     {
         HitsTaken++;
-        Hearts = Mathf.Max(0f, Hearts - hearts);
         _damageIFrames = 1.0f;
         PendingHitStop = 0.09f;
+        AddTrauma(0.45f);
+
+        // ARMOUR (docs/02 §2): absorbs one hit of any size, consumed entirely.
+        //
+        // It absorbs the SANITY cost as well as the health, and that is the part that
+        // matters. The damage spiral is get hit -> lose Sanity -> cannot reload -> cannot
+        // kill -> get hit again; armour breaking that chain at the first link is worth far
+        // more than the half heart it saves.
+        if (Armour > 0)
+        {
+            Armour--;
+            ArmourAbsorbed++;
+            Telemetry?.NoteHitTaken();
+            return;
+        }
+
+        Hearts = Mathf.Max(0f, Hearts - hearts);
 
         Telemetry?.NoteHitTaken();
         Telemetry?.NoteSanitySpend(Tune.SanityHitCost);
@@ -641,6 +723,11 @@ public sealed partial class PlayerController : CharacterBody2D
         DeniedBlinkCount = 0;
         DeniedSustainCount = 0;
         Corruption = 0f;
+        Armour = 0;
+        ArmourAbsorbed = 0;
+        Gold = 0;
+        Keys = 0;
+        CandlesCollected = 0;
         Ascension.ResetForRun();
         Sanity.Suspended = false;
 

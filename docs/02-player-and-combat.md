@@ -118,7 +118,10 @@ Out-of-combat regeneration refills Sanity **only up to a ceiling that falls as t
 |---|---|
 | Ceiling on floor entry | **100** (or the character's max) |
 | Decay | **−7 per room cleared** on this floor *(steepened from −5 under F4)* |
-| Ceiling floor | **45** — never drops below *(lowered from 50 under F4)* |
+| Ceiling floor | **60** — never drops below *(50 → 45 under F4, corrected to 60 by simulation)* |
+
+> **[FINDING — economy simulation] The floor must sit INSIDE Unsettled, not on the lip of Fraying.**
+> At 45 this section's own stated intent failed. Kill income is capped at the ceiling, so once the ceiling bottomed out a player entered every remaining room 5 points from Fraying, fell through on the first reload, and could never climb back — **66% of all combat time below 40** against a 25–45% target. The intent below says late-floor rooms *"begin in Unsettled and end in Fraying"*; at 45 they began and ended in Fraying, which is the "bar is a leash" failure Fable named. At 60 the measured figure is **39.1%**. See [11 §M1](11-roadmap.md).
 | Reset to 100 | On entering a new floor, and in the **boss foyer** |
 | Can be exceeded by | Sanity candles, shop purchases, Unbroken Seals, certain sigils |
 

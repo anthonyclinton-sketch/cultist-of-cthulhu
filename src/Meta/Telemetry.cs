@@ -33,6 +33,8 @@ public sealed class Telemetry
         public float TimeLucid, TimeUnsettled, TimeFraying, TimeUnravelled;
         public bool ReachedFrayingUnaided;
         public int Ascensions;
+        public int CandlesCollected;
+        public int ArmourAbsorbed;
     }
 
     private readonly List<RoomRecord> _rooms = new();
@@ -58,6 +60,11 @@ public sealed class Telemetry
     }
 
     public void NoteOpenEye() => _openEyeUsedThisRoom = true;
+
+    /// <summary>Candles are the only counter-play to the Lucid Ceiling, so their collection
+    /// rate is effectively the strength of the player's defence against the descent. If
+    /// metric 1 reads low, check this before touching the ceiling decay.</summary>
+    public void NoteCandle() => _current.CandlesCollected++;
     public void NoteKill() => _current.Kills++;
     public void NoteHitTaken() => _current.HitsTaken++;
     public void NoteDeniedSustain() => _current.DeniedSustain++;
@@ -157,6 +164,14 @@ public sealed class Telemetry
         sb.AppendLine($" 5. median net/room   {net:+0.0;-0.0}      target -15..+15    [{Verdict(net is >= -15f and <= 15f)}]");
         sb.AppendLine($" 9. ladder fires      {ladder * 100:F0}%     target >= 70%      [{Verdict(ladder >= 0.70f)}]");
         sb.AppendLine($" 3. denied sustain    {TotalDeniedSustain()}        target 1-4/run");
+
+        // Not a pass/fail metric — context for reading metric 1. Candles are the only
+        // counter-play to the Lucid Ceiling, so if time-below-40 reads low, check whether
+        // the player was simply swimming in candles before touching the ceiling decay.
+        int candles = 0;
+        foreach (RoomRecord r in _rooms) candles += r.CandlesCollected;
+        sb.AppendLine($"    candles/room     {(_rooms.Count > 0 ? candles / (float)_rooms.Count : 0f):F2}" +
+                      $"      (context for metric 1, not a gate)");
         return sb.ToString();
     }
 
@@ -165,7 +180,8 @@ public sealed class Telemetry
         var sb = new StringBuilder();
         sb.AppendLine("room,duration,sanity_start,sanity_end,sanity_min,income,spend,ceiling," +
                       "kills,hits,denied_sustain,reloads,reloads_denied,perfect,failed," +
-                      "t_lucid,t_unsettled,t_fraying,t_unravelled,ladder_fired,ascensions");
+                      "t_lucid,t_unsettled,t_fraying,t_unravelled,ladder_fired,ascensions," +
+                      "candles,armour_absorbed");
 
         foreach (RoomRecord r in _rooms)
         {
@@ -174,7 +190,8 @@ public sealed class Telemetry
                           $"{r.Kills},{r.HitsTaken},{r.DeniedSustain},{r.ReloadsAttempted}," +
                           $"{r.ReloadsDenied},{r.PerfectRecitations},{r.FailedRecitations}," +
                           $"{r.TimeLucid:F2},{r.TimeUnsettled:F2},{r.TimeFraying:F2},{r.TimeUnravelled:F2}," +
-                          $"{(r.ReachedFrayingUnaided ? 1 : 0)},{r.Ascensions}");
+                          $"{(r.ReachedFrayingUnaided ? 1 : 0)},{r.Ascensions}," +
+                          $"{r.CandlesCollected},{r.ArmourAbsorbed}");
         }
 
         using var f = FileAccess.Open(path, FileAccess.ModeFlags.Write);

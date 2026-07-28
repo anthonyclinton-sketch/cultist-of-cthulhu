@@ -34,6 +34,8 @@ public sealed partial class CombatArena : Node2D
     private BulletManager _enemyBullets = null!;
     private BulletManager _playerBullets = null!;
     private EnemyManager _enemies = null!;
+    private Items.PickupManager _pickups = null!;
+    private readonly Items.DropTable _drops = new();
     private PlayerController _player = null!;
     private Hud _hud = null!;
     private Rng _rng = null!;
@@ -124,6 +126,9 @@ public sealed partial class CombatArena : Node2D
         };
         AddChild(_playerBullets);
 
+        _pickups = new Items.PickupManager { Name = nameof(Items.PickupManager) };
+        AddChild(_pickups);
+
         _enemies = new EnemyManager { Name = nameof(EnemyManager) };
         AddChild(_enemies);
         _enemies.Initialise(_enemyBullets, _playerBullets, bounds, Hash.Derive(GameRoot.Instance.RunSeed, "enemies"));
@@ -139,6 +144,7 @@ public sealed partial class CombatArena : Node2D
             EnemyBullets = _enemyBullets,
             PlayerBullets = _playerBullets,
             Enemies = _enemies,
+            Pickups = _pickups,
             Telemetry = _telemetry,
         };
         _player.AddChild(new CollisionShape2D { Shape = new CircleShape2D { Radius = 7f } });
@@ -267,15 +273,22 @@ public sealed partial class CombatArena : Node2D
         _telemetry.EndRoom(_player.Sanity, _player.Weapons.ReloadsAttempted,
                            _player.Weapons.ReloadsDenied, w.PerfectRecitations, w.FailedRecitations);
 
+        // Drops BEFORE the ceiling drops, so the candle roll sees the headroom the player
+        // actually had during the fight rather than the post-clear number.
+        float headroom = _player.Sanity.LucidCeiling - _player.Sanity.Current;
+        _drops.RollRoomClear(_pickups, _player.GlobalPosition, _rng, floor: 1,
+                             playerKeys: _player.Keys,
+                             reserveFraction: _player.TotalReserveFraction(),
+                             sanityHeadroom: headroom);
+
         // Room clear: +20 Sanity, and the Lucid Ceiling drops. Post-F4 this decay is the
         // primary driver of the descent (docs/02 §3.3.1).
         _player.Sanity.OnRoomCleared();
 
-        // Ammo economy relief so the slice can run long enough to gather data.
-        foreach (Weapon weapon in _player.Weapons.Weapons) weapon.AddReserve(weapon.Data.MagazineSize * 2);
-
         GD.Print($"[Room {_roomIndex}] cleared. sanity {_player.Sanity.Current:F0} " +
-                 $"ceiling {_player.Sanity.LucidCeiling:F0} band {_player.Sanity.Band}");
+                 $"ceiling {_player.Sanity.LucidCeiling:F0} band {_player.Sanity.Band}   " +
+                 $"drops {_pickups.Count}  armour {_player.Armour}  gold {_player.Gold}  " +
+                 $"candles {_player.CandlesCollected}");
     }
 
     // ---------------------------------------------------------------- Tick
@@ -416,6 +429,34 @@ public sealed partial class CombatArena : Node2D
         }
     }
 
+    /// <summary>
+    /// Ground pickups. The candle gets a halo and a bob the others do not — it is the
+    /// only counter-play to the descent, and a player who walks past one because it
+    /// looked like loose change has been failed by the presentation, not by the design.
+    /// </summary>
+    private void DrawPickups()
+    {
+        float t = _telemetry.SessionDuration;
+
+        foreach (Items.Pickup p in _pickups.Pickups)
+        {
+            Color c = Items.PickupManager.ColourFor(p.Kind);
+            float r = Items.PickupManager.RadiusFor(p.Kind);
+            float bob = Mathf.Sin(t * 4f + p.Position.X * 0.1f) * 1.5f;
+            Vector2 pos = p.Position + new Vector2(0, bob);
+
+            if (p.Kind == Items.PickupKind.SanityCandle)
+            {
+                float pulse = 0.35f + 0.25f * Mathf.Sin(t * 5f);
+                DrawCircle(pos, r * 3.2f, c with { A = pulse * 0.35f });
+                DrawCircle(pos, r * 2f, c with { A = pulse * 0.5f });
+            }
+
+            DrawCircle(pos, r, c);
+            DrawArc(pos, r + 1.5f, 0, Mathf.Tau, 12, new Color(0, 0, 0, 0.55f), 1.2f);
+        }
+    }
+
     private void HandleDebugKeys()
     {
         if (Input.IsKeyPressed(Key.F5))
@@ -444,6 +485,7 @@ public sealed partial class CombatArena : Node2D
     {
         DrawBanishPulse();
         DrawSanityMotes();
+        DrawPickups();
 
         foreach (Enemy e in _enemies.Enemies)
         {

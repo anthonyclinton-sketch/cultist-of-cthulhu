@@ -24,6 +24,7 @@ public sealed partial class Hud : Node2D
     private static readonly Color SanityCeiling = new("3A5F5A");
     private static readonly Color CorruptionColour = new("B0122A");
     private static readonly Color PerfectWindow = new("FFE066");
+    private static readonly Color ArmourColour = new("B8C4D0");
 
     private const float RingRadius = 34f;
     private const float RingWidth = 5f;
@@ -134,6 +135,16 @@ public sealed partial class Hud : Node2D
             float fill = Mathf.Clamp(p - i, 0f, 1f);
             if (fill > 0f)
                 DrawRect(new Rect2(r.Position, new Vector2(size * fill, size)), HeartFull);
+        }
+
+        // Armour stacks to the LEFT of the hearts (docs/02 §2) — it is consumed first, so
+        // reading right-to-left gives the order in which the player will lose things.
+        for (int i = 0; i < Player.Armour; i++)
+        {
+            var r = new Rect2(origin + new Vector2(-(i + 1) * (size * 0.7f + 3f), 1f),
+                              new Vector2(size * 0.7f, size - 2f));
+            DrawRect(r, ArmourColour);
+            DrawRect(r, new Color(1, 1, 1, 0.35f), filled: false, width: 1f);
         }
     }
 

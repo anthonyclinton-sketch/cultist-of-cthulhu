@@ -93,11 +93,54 @@ public static class Tune
     // time-in-band (docs/11 metric 1, target 25-45% of combat below 40 Sanity).
     public const float LucidCeilingStart = 100f;
     public const float LucidCeilingDecayPerRoom = 7f;
-    public const float LucidCeilingFloor = 45f;
+
+    /// <summary>
+    /// **60, raised from 45.** The floor must sit inside Unsettled, not on the lip of
+    /// Fraying.
+    ///
+    /// docs/02 §3.3.1 states the intent precisely: late-floor rooms "begin in Unsettled
+    /// and end in Fraying". At 45 that failed — 45 is only 5 points above the Fraying
+    /// boundary, and kill income is capped at the ceiling, so once the ceiling bottomed
+    /// out a player entered every remaining room 5 points from Fraying, dropped through on
+    /// the first reload, and could never climb back. The economy simulation measured 66%
+    /// of all combat time below 40 against a 25–45% target.
+    ///
+    /// The failure mode Fable named for this is exactly right: the bar became a leash. The
+    /// ceiling is supposed to walk the player to the edge of the ladder; at 45 it parked
+    /// them past it.
+    /// </summary>
+    public const float LucidCeilingFloor = 60f;
 
     // --- Band hysteresis (docs/02 §3.5.2) — lets a chosen band be HELD.
     public const float BandHysteresis = 8f;
-    public const float LowBandKillRefundMult = 0.5f;     // below Fraying, kills refund half
+
+    /// <summary>
+    /// Kill-refund multiplier below the Fraying boundary. **1.0 — the halving is removed.**
+    ///
+    /// It was 0.5, and the economy simulation showed why that could not stand post-F4:
+    /// the low band became an ABSORBING STATE. Below 40 you earn half, so you cannot climb
+    /// out, so you keep earning half. Measured result was 66% of all combat time spent
+    /// below 40 against a 25–45% target, and — the diagnostic tell — an expert at 67%
+    /// versus a novice at 73%, meaning skill barely mattered because everyone lived at the
+    /// bottom.
+    ///
+    /// The halving and the 8-point hysteresis were BOTH introduced to do one job: let a
+    /// player hold a band they entered deliberately. Hysteresis does that job without
+    /// touching income. The halving was designed when dodging cost 18 Sanity and the
+    /// economy was steeply negative anyway; F4 removed that premise and left a brake on a
+    /// system that no longer accelerates.
+    ///
+    /// Kept as a named constant rather than deleted so the sim can sweep it.
+    /// </summary>
+    public const float LowBandKillRefundMult = 1.0f;
+
+    /// <summary>docs/02 §3.3 — Sanity candle. PIERCES the Lucid Ceiling, which is the
+    /// entire reason it exists: everything else in the economy pushes Sanity down across
+    /// a floor, and this is the only thing that pushes back above the cap.</summary>
+    public const float SanityCandleValue = 25f;
+
+    /// <summary>docs/02 §2 — armour absorbs one hit of any size, consumed entirely.</summary>
+    public const int MaxArmour = 4;
 
     // --- Banish (docs/02 §5.2) — the panic button. Not an item; gated purely on Sanity,
     // which is why entering Fraying (40) takes it away from you: it costs 45.

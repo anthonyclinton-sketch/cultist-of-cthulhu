@@ -62,6 +62,11 @@ Write-Host "`n### BANISH ###"
 & $godot --headless --path $root res://scenes/debug/BanishTest.tscn
 if ($LASTEXITCODE -ne 0) { $failed += "banish" }
 
+# Advisory, not a gate. These are tuning targets — drifting out of them should start a
+# conversation, not break the build.
+Write-Host "`n### ECONOMY SIMULATION (advisory) ###"
+& $godot --headless --path $root res://scenes/debug/EconomySim.tscn
+
 Write-Host "`n### M0 GATE 1 — BULLET PERFORMANCE ###"
 & $godot --headless --path $root res://scenes/debug/Benchmark.tscn --seed $Seed
 if ($LASTEXITCODE -ne 0) { $failed += "bullet performance" }

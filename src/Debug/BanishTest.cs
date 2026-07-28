@@ -113,11 +113,25 @@ public sealed partial class BanishTest : Node2D
 
     private void TestAffordability()
     {
-        // The design point of the 45 cost: entering Fraying takes your panic button away.
+        // THE design property of the 45 cost: entering Fraying takes your panic button
+        // away, at exactly the moment a fight has gone badly enough to want it.
         Check(Tune.SanityBanishCost > Tune.BandFraying,
               $"Banish ({Tune.SanityBanishCost}) is unaffordable at the Fraying boundary ({Tune.BandFraying})");
-        Check(Tune.SanityBanishCost > Tune.LucidCeilingFloor - 1f,
-              $"Banish is at or above the Lucid Ceiling floor ({Tune.LucidCeilingFloor}) — " +
-              "late-floor Banish is a real decision, not a freebie");
+
+        // Late-floor Banish must be a major commitment rather than a freebie.
+        //
+        // This assertion previously read "Banish cost >= Lucid Ceiling floor", which
+        // passed only because both happened to be 45. That was a COINCIDENCE, not a
+        // design property, and raising the ceiling floor to 60 broke a test that was
+        // encoding an accident. The real property is the RATIO: Banish should cost most
+        // of what a late-floor player has to spend.
+        float fractionOfLateCeiling = Tune.SanityBanishCost / Tune.LucidCeilingFloor;
+        Check(fractionOfLateCeiling >= 0.6f,
+              $"Banish costs {fractionOfLateCeiling * 100:F0}% of the late-floor ceiling " +
+              $"({Tune.SanityBanishCost}/{Tune.LucidCeilingFloor}) — a real decision, not a freebie");
+
+        // And it must drop you at least one band, or it is not a sacrifice.
+        Check(Tune.LucidCeilingFloor - Tune.SanityBanishCost < Tune.BandFraying,
+              "Banishing at the late-floor ceiling drops the player into Fraying or below");
     }
 }

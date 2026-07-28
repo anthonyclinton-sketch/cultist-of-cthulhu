@@ -95,10 +95,42 @@ The **room count is the schedule**. At a sustained 4 finished, playtested rooms 
 | 2 | Does the intended failure state occur? | "Empty gun, no dodge, in a bullet wall" events per 8-room run | **1–3** | 0 (never bites) or >6 (misery) |
 | 3 | Is the cost legible? | Denied-action events (pressed dodge, couldn't pay) per run | **1–4** | >8 = players don't model the bar |
 | 4 | Can they explain a death? | % of deaths the tester attributes to a specific decision, unprompted | **≥70%** | <50% violates [01 §6.1](01-pillars-and-loop.md) |
-| 5 | Is the economy near break-even? | Median Sanity net per room | **−15 to +15** | outside ±30 = income/cost mis-tuned |
+| 5 | ~~Is the economy near break-even?~~ | ~~Median Sanity net per room~~ | ~~−15 to +15~~ | **STALE — see below** |
+| 5b | Is the economy near break-even? | **% of kill Sanity discarded at the Lucid Ceiling** | **10–45%** | >55% income over-tuned · <5% with the player still bleeding = under-tuned |
 | 6 | **Is the low band chosen or suffered?** | Testers who *deliberately* spend to descend, unprompted | **≥3 of 12** | 0 confirms the [02 §3.5](02-player-and-combat.md) rubber-band finding |
 | 7 | **Does the constraint add value?** | A-vs-B preference for "which was more interesting to play?" | **A ≥ 60%** | B > A = the bet fails as designed |
 | 8 | Voluntary replay | Testers who choose a 4th consecutive run when told they may stop | **≥60%** | <40% |
+
+> **[FINDING — economy simulation, 26 Jul 2026] Metric 5's premise is stale, and two constants were wrong. Found by simulation, not playtest.**
+>
+> `scenes/debug/EconomySim.tscn` runs 400 runs × 14 rooms against the real `SanitySystem`,
+> `DropTable` and `Tune` constants, at three skill profiles. It is a model of the economy,
+> not of the game — it cannot say whether anything is *fun*. What it can do is say whether
+> the numbers are in the right neighbourhood before a playtest is spent finding out.
+>
+> **Metric 5 is retired.** It was defined before the Lucid Ceiling existed (option D in the
+> same review, untested at the time). With a ceiling, in-combat net is structurally
+> negative **by design**: kill income is capped, and the corridor top-up between rooms is
+> what closes the gap. A player who ends every room down 28 and is refilled to the ceiling
+> before the next is in perfect equilibrium — and metric 5 calls that a failure.
+> **Metric 5b** replaces it: the fraction of kill Sanity discarded at the cap. That number
+> rises when income is over-tuned and falls to zero when it is under-tuned, which is what
+> metric 5 was reaching for.
+>
+> **Two constants were wrong:**
+>
+> | | Was | Now | Why |
+> |---|---|---|---|
+> | `LucidCeilingFloor` | 45 | **60** | 45 sits 5 points above Fraying, and kill income is capped at the ceiling — so once it bottomed out, players entered every room 5 from Fraying, fell through on the first reload, and could never climb back. **66% of combat below 40** against a 25–45% target. docs/02 §3.3.1 says late-floor rooms should *"begin in Unsettled and end in Fraying"*; at 45 they began and ended in Fraying. |
+> | `LowBandKillRefundMult` | 0.5 | **1.0** | Redundant with the 8-point band hysteresis — both existed to let a player hold a chosen band, and hysteresis does it without touching income. Removing it barely moved metric 1 (66.3% vs 65.6%), so the stated hypothesis was wrong; but it **tripled the skill gradient**, expert-vs-novice going from 5.2 points to 16.1. It was the right change for a different reason than predicted. |
+>
+> **Result at the average profile:** metric 1 **39.1%** (in), metric 9 **77%** (in),
+> metric 5b **40%** (in). Skill gradient reads correctly — novice 45.1%, expert 37.9%.
+> Ascensions fell to **0.84/run**, an event rather than a rotation.
+>
+> **What the sim cannot tell us, and M1 still must:** whether the low band feels good,
+> whether hallucinations are fair, whether anyone descends deliberately (metric 6), and
+> whether the free dodge beats the metered one (metric 7).
 
 **Qualitative — listen for the Pathogenic failure mode.** [00 §2.2](00-comparative-analysis.md) documents real players of the source mechanic complaining that shared stamina *"screws up the rhythm"* and *"takes away control over damage windows."* If ≥3 testers say a version of this unprompted, it is the same failure reproducing in our game — go to Fallback F1 regardless of the other numbers.
 
