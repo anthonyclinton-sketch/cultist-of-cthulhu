@@ -539,6 +539,17 @@ public sealed partial class FloorRunner : Node2D
                     EnterRoom(r.NodeId);
                     GD.Print($"[screenshot] combat demo — moved to {r.Template.Id} ({r.Role}), " +
                              $"{_enemies.AliveCount} enemies");
+
+                    // A stationary ring right next to the player. Aim direction cannot
+                    // confound this: if these do not appear on screen, the bullets are
+                    // being culled rather than mis-aimed.
+                    for (int k = 0; k < 20; k++)
+                    {
+                        float a = k / 20f * Mathf.Tau;
+                        var d = new Vector2(Mathf.Cos(a), Mathf.Sin(a));
+                        _playerBullets.Spawn(_player.GlobalPosition + d * 55f, Vector2.Zero,
+                                             3f, 30f, new Color("FFB347"), 8f, BulletFlags.PlayerOwned);
+                    }
                     break;
                 }
             }

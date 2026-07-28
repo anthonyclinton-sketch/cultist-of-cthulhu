@@ -113,7 +113,45 @@ public sealed partial class BulletManager : Node2D
     public bool TargetInvulnerable;
 
     /// <summary>Arena bounds. Bullets leaving are despawned (or reflected, per flag).</summary>
-    public Rect2 Bounds = new(-2000, -2000, 4000, 4000);
+    public Rect2 Bounds
+    {
+        get => _bounds;
+        set { _bounds = value; ApplyCullingBounds(); }
+    }
+    private Rect2 _bounds = new(-2000, -2000, 4000, 4000);
+
+    /// <summary>
+    /// Pin the MultiMesh AABB to the whole playfield so the layers are never culled.
+    ///
+    /// THE BUG THIS FIXES, which took three attempts to find because it looks like a
+    /// gameplay fault rather than a rendering one: Godot derives a MultiMeshInstance2D's
+    /// culling rect from its instance transforms, and does not reliably recompute it on
+    /// every buffer write. The node itself sits at the origin while the instances are at
+    /// world coordinates hundreds of tiles away, so the rect stayed wherever bullets
+    /// happened to be early in the run. Walk into a room outside that stale rect and the
+    /// ENTIRE layer is culled — bullets keep simulating, keep colliding, keep killing
+    /// things, and draw nothing at all.
+    ///
+    /// That is exactly how it was reported: "they still seem to be hitting and killing
+    /// enemies even though I can't see them", visible in the spawn room and invisible in
+    /// the next one.
+    ///
+    /// A custom AABB disables the derived one, so the layers are always considered
+    /// visible. For a full-screen effect layer that is correct — there is no culling win
+    /// available when the content can be anywhere on the floor.
+    /// </summary>
+    private void ApplyCullingBounds()
+    {
+        if (_bodyMesh is null || _shadowMesh is null) return;
+
+        // Generous padding: bullets may briefly exist outside the despawn bounds.
+        Rect2 r = _bounds.Grow(512f);
+        var aabb = new Aabb(new Vector3(r.Position.X, r.Position.Y, -1f),
+                            new Vector3(r.Size.X, r.Size.Y, 2f));
+
+        _bodyMesh.CustomAabb = aabb;
+        _shadowMesh.CustomAabb = aabb;
+    }
 
     // ---------------------------------------------------------------- Frame outputs
 
@@ -205,6 +243,8 @@ public sealed partial class BulletManager : Node2D
             PhysicsInterpolationMode = PhysicsInterpolationModeEnum.Off,
         };
         AddChild(_bodyLayer);
+
+        ApplyCullingBounds();
     }
 
     /// <summary>
