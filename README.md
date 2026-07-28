@@ -54,11 +54,14 @@ Run content validation and both M0 gates:
 pwsh ./tools/gates.ps1
 ```
 
-Play the M1 combat slice:
+Play a procedurally generated floor:
 
 ```bash
-pwsh ./tools/gates.ps1 -Arena
+pwsh ./tools/gates.ps1 -Floor
 ```
+
+Or the fixed-arena combat slice (`-Arena`), the bullet stress test (`-Play`), the Pattern
+Lab (`-Lab`), or render a floor as ASCII without launching (`-ShowSeed 7`).
 
 ### Controls
 

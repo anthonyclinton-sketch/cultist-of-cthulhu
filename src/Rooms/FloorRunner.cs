@@ -1,0 +1,461 @@
+using System.Collections.Generic;
+using CultistOfCthulhu.Bullets;
+using CultistOfCthulhu.Core;
+using CultistOfCthulhu.Enemies;
+using CultistOfCthulhu.Generation;
+using CultistOfCthulhu.Meta;
+using CultistOfCthulhu.Player;
+using CultistOfCthulhu.UI;
+using CultistOfCthulhu.Weapons;
+using Godot;
+
+namespace CultistOfCthulhu.Rooms;
+
+/// <summary>
+/// A walkable, procedurally generated floor. The first scene where the generator and the
+/// combat slice are the same game.
+///
+///   pwsh ./tools/gates.ps1 -Floor
+///
+/// Everything before this ran a fixed arena and spawned waves into it, which tested the
+/// Sanity economy but not the thing docs/06 exists for — moving through an authored
+/// topology, choosing routes, and finding the reward room. The generator had been built,
+/// validated across 10,000 seeds, and connected to nothing.
+///
+/// Room activation follows docs/09 §6.1: only the room the player occupies runs its
+/// encounter. Doors seal on entry to an uncleared combat room and open on clear, which is
+/// what makes a room a room rather than a region of an open map.
+/// </summary>
+public sealed partial class FloorRunner : Node2D
+{
+    private BulletManager _enemyBullets = null!;
+    private BulletManager _playerBullets = null!;
+    private EnemyManager _enemies = null!;
+    private Items.PickupManager _pickups = null!;
+    private readonly Items.DropTable _drops = new();
+    private PlayerController _player = null!;
+    private Hud _hud = null!;
+    private Camera2D _camera = null!;
+    private Rng _rng = null!;
+    private readonly Telemetry _telemetry = new();
+
+    private GeneratedFloor _floor = null!;
+    private FloorGeometry _geometry = null!;
+    private readonly List<EnemyData> _roster = new();
+
+    private readonly HashSet<int> _clearedRooms = new();
+    private readonly Dictionary<int, StaticBody2D> _doorSeals = new();
+    private int _currentRoom = -1;
+    private bool _encounterActive;
+    private float _hitStopTimer;
+    private int _roomsCleared;
+
+    public override void _Ready()
+    {
+        _rng = Hash.Derive(GameRoot.Instance.RunSeed, "floor_runner");
+
+        LoadContent();
+        GenerateFloor();
+        BuildGeometry();
+        BuildManagers();
+        BuildPlayer();
+        BuildCameraAndUi();
+
+        EnterRoom(_floor.FindRole(RoomRole.Entrance)!.NodeId);
+
+        GD.Print($"[FloorRunner] {_floor.Rooms.Count} rooms, flow '{_floor.FlowId}'. " +
+                 "WASD move · LMB fire · SPACE dash · R recite · RMB banish · TAB map · F3 overlay");
+    }
+
+    // ---------------------------------------------------------------- Setup
+
+    private void LoadContent()
+    {
+        foreach (string path in new[]
+                 {
+                     "res://data/enemies/acolyte.tres",
+                     "res://data/enemies/cellar_ghoul.tres",
+                     "res://data/enemies/tallow_man.tres",
+                     "res://data/enemies/netcaster.tres",
+                     "res://data/enemies/chanter.tres",
+                 })
+        {
+            var data = GD.Load<EnemyData>(path);
+            if (data is not null) _roster.Add(data);
+            else GD.PrintErr($"[FloorRunner] failed to load {path}");
+        }
+    }
+
+    private void GenerateFloor()
+    {
+        var gen = new FloorGenerator(UndercroftContent.Flows(), UndercroftContent.Rooms());
+        GeneratedFloor? floor = gen.Generate(
+            Hash.Combine(GameRoot.Instance.RunSeed, "floor1"), floorIndex: 1, out string failure);
+
+        if (floor is null)
+        {
+            GD.PrintErr($"[FloorRunner] generation failed: {failure}");
+            GetTree().Quit(1);
+            return;
+        }
+        _floor = floor;
+    }
+
+    private void BuildGeometry()
+    {
+        _geometry = new FloorGeometry(_floor);
+
+        // Floor tiles, drawn as one batched node rather than thousands of ColorRects.
+        AddChild(new FloorTiles { Geometry = _geometry, ZIndex = -100 });
+
+        // Collision shell.
+        var walls = new StaticBody2D { Name = "Walls" };
+        foreach (Rect2 r in _geometry.BuildWallRects())
+        {
+            walls.AddChild(new CollisionShape2D
+            {
+                Position = r.Position + r.Size * 0.5f,
+                Shape = new RectangleShape2D { Size = r.Size },
+            });
+        }
+        AddChild(walls);
+    }
+
+    private void BuildManagers()
+    {
+        Rect2I b = _floor.Bounds();
+        var world = new Rect2(
+            (b.Position.X - 4) * FloorGeometry.Tile, (b.Position.Y - 4) * FloorGeometry.Tile,
+            (b.Size.X + 8) * FloorGeometry.Tile, (b.Size.Y + 8) * FloorGeometry.Tile);
+
+        _enemyBullets = new BulletManager { Name = nameof(BulletManager), Bounds = world };
+        AddChild(_enemyBullets);
+
+        _playerBullets = new BulletManager { Name = "PlayerBullets", Bounds = world, CollideWithEnemies = true };
+        AddChild(_playerBullets);
+
+        _pickups = new Items.PickupManager { Name = nameof(Items.PickupManager) };
+        AddChild(_pickups);
+
+        _enemies = new EnemyManager { Name = nameof(EnemyManager) };
+        AddChild(_enemies);
+        _enemies.Initialise(_enemyBullets, _playerBullets, world, Hash.Derive(GameRoot.Instance.RunSeed, "enemies"));
+    }
+
+    private void BuildPlayer()
+    {
+        PlacedRoom entrance = _floor.FindRole(RoomRole.Entrance)!;
+
+        _player = new PlayerController
+        {
+            Name = nameof(PlayerController),
+            Position = _geometry.RoomCentreWorld(entrance),
+            EnemyBullets = _enemyBullets,
+            PlayerBullets = _playerBullets,
+            Enemies = _enemies,
+            Pickups = _pickups,
+            Telemetry = _telemetry,
+        };
+        _player.AddChild(new CollisionShape2D { Shape = new CircleShape2D { Radius = 6f } });
+        AddChild(_player);
+
+        foreach (string path in new[]
+                 {
+                     "res://data/weapons/webley_mk_vi.tres",
+                     "res://data/weapons/cantrip_withering.tres",
+                     "res://data/weapons/sacrificial_kris.tres",
+                 })
+        {
+            var data = GD.Load<WeaponData>(path);
+            if (data is not null) _player.GiveWeapon(data);
+        }
+    }
+
+    private void BuildCameraAndUi()
+    {
+        _camera = new Camera2D
+        {
+            Enabled = true,
+            ProcessCallback = Camera2D.Camera2DProcessCallback.Physics,
+            PositionSmoothingEnabled = true,
+            PositionSmoothingSpeed = 8f,
+        };
+        _player.AddChild(_camera);
+
+        var layer = new CanvasLayer { Name = "UI" };
+        _hud = new Hud { Name = nameof(Hud), Player = _player };
+        layer.AddChild(_hud);
+        layer.AddChild(new Minimap { Name = nameof(Minimap), Floor = _floor, Player = _player, Cleared = _clearedRooms });
+        AddChild(layer);
+
+        AddChild(new Debug.DebugOverlay
+        {
+            Name = nameof(Debug.DebugOverlay),
+            BulletManagerPath = _enemyBullets.GetPath(),
+            PlayerPath = _player.GetPath(),
+        });
+    }
+
+    // ---------------------------------------------------------------- Tick
+
+    public override void _PhysicsProcess(double delta)
+    {
+        float dt = (float)delta;
+
+        if (_hitStopTimer > 0f)
+        {
+            _hitStopTimer -= dt;
+            Engine.TimeScale = 0.05f;
+        }
+        else Engine.TimeScale = 1f;
+
+        if (_player.PendingHitStop > 0f) _hitStopTimer = _player.PendingHitStop;
+
+        TrackRoom();
+
+        _enemies.PlayerPosition = _player.GlobalPosition;
+        _enemies.PlayerVelocity = _player.Velocity;
+        _enemies.PlayerAscended = _player.Ascension.IsAscended;
+        _enemies.HallucinationRatio = _player.Sanity.HallucinationRatio;
+        _player.Sanity.InCombat = _encounterActive && _enemies.AliveCount > 0;
+
+        _telemetry.Tick(dt, _player.Sanity);
+        _camera.Offset = _player.ShakeOffset(_rng);
+
+        if (_encounterActive && _enemies.AliveCount == 0) ClearRoom();
+
+        QueueRedraw();
+        HandleDebugKeys();
+    }
+
+    /// <summary>Which room is the player standing in? Drives activation and the minimap.</summary>
+    private void TrackRoom()
+    {
+        foreach (PlacedRoom r in _floor.Rooms)
+        {
+            if (!_geometry.RoomRectWorld(r).HasPoint(_player.GlobalPosition)) continue;
+            if (r.NodeId != _currentRoom) EnterRoom(r.NodeId);
+            return;
+        }
+    }
+
+    private void EnterRoom(int nodeId)
+    {
+        _currentRoom = nodeId;
+        PlacedRoom? room = null;
+        foreach (PlacedRoom r in _floor.Rooms) if (r.NodeId == nodeId) { room = r; break; }
+        if (room is null) return;
+
+        if (_clearedRooms.Contains(nodeId)) return;
+        if (!IsCombatRole(room.Role)) { _clearedRooms.Add(nodeId); OnNonCombatRoom(room); return; }
+
+        StartEncounter(room);
+    }
+
+    private static bool IsCombatRole(RoomRole r) =>
+        r is RoomRole.CombatEasy or RoomRole.CombatMed or RoomRole.CombatHard or RoomRole.Hub;
+
+    private void OnNonCombatRoom(PlacedRoom room)
+    {
+        // Reward/shop/shrine content is M2 proper; for now the room announces itself so
+        // route choice is legible while walking the floor.
+        if (room.Role is RoomRole.Reward or RoomRole.Shop or RoomRole.Shrine or RoomRole.Secret)
+            GD.Print($"[{room.Role}] {room.Template.Id} — contents are M2.");
+    }
+
+    /// <summary>
+    /// docs/06 §6.1 Dread Budget. Scales with rooms cleared and the room's authored
+    /// ThreatCapacity, with the >=35% fodder floor that keeps the Sanity economy solvent.
+    /// </summary>
+    private void StartEncounter(PlacedRoom room)
+    {
+        float budget = Mathf.Min(room.Template.ThreatCapacity, 34f + _roomsCleared * 13f);
+        if (room.Role == RoomRole.CombatHard) budget *= 1.25f;
+
+        float fodderFloor = budget * 0.35f;
+        float fodderSpent = 0f, spent = 0f;
+        int guard = 0;
+
+        Rect2 area = _geometry.RoomRectWorld(room).Grow(-32f);
+
+        while (spent < budget && guard++ < 64)
+        {
+            EnemyData pick = PickEnemy(fodderSpent < fodderFloor);
+            if (pick.DreadCost > budget - spent && spent > 0f) break;
+
+            var at = new Vector2(
+                _rng.Range(area.Position.X, area.Position.X + area.Size.X),
+                _rng.Range(area.Position.Y, area.Position.Y + area.Size.Y));
+
+            _enemies.Spawn(pick, at);
+            spent += pick.DreadCost;
+            if (pick.Role == EnemyRole.Fodder) fodderSpent += pick.DreadCost;
+        }
+
+        if (_enemies.AliveCount == 0) { _clearedRooms.Add(room.NodeId); return; }
+
+        _encounterActive = true;
+        SealDoors(room, true);
+        _telemetry.BeginRoom(_roomsCleared + 1, _player.Sanity);
+
+        GD.Print($"[Room {room.Template.Id}] {room.Role}  budget {budget:F0}  " +
+                 $"enemies {_enemies.AliveCount}  ceiling {_player.Sanity.LucidCeiling:F0}");
+    }
+
+    private EnemyData PickEnemy(bool needFodder)
+    {
+        for (int i = 0; i < 24; i++)
+        {
+            EnemyData d = _roster[_rng.NextInt(0, _roster.Count)];
+            if (needFodder && d.Role != EnemyRole.Fodder) continue;
+            return d;
+        }
+        return _roster[0];
+    }
+
+    private void ClearRoom()
+    {
+        _encounterActive = false;
+        _clearedRooms.Add(_currentRoom);
+        _roomsCleared++;
+
+        PlacedRoom? room = null;
+        foreach (PlacedRoom r in _floor.Rooms) if (r.NodeId == _currentRoom) { room = r; break; }
+        if (room is not null) SealDoors(room, false);
+
+        float headroom = _player.Sanity.LucidCeiling - _player.Sanity.Current;
+        _drops.RollRoomClear(_pickups, _player.GlobalPosition, _rng, 1,
+                             _player.Keys, _player.TotalReserveFraction(), headroom);
+
+        Weapon w = _player.Weapons.Active;
+        _telemetry.EndRoom(_player.Sanity, _player.Weapons.ReloadsAttempted,
+                           _player.Weapons.ReloadsDenied, w.PerfectRecitations, w.FailedRecitations);
+
+        _player.Sanity.OnRoomCleared();
+
+        GD.Print($"[cleared] {_roomsCleared} rooms  sanity {_player.Sanity.Current:F0}/" +
+                 $"{_player.Sanity.Max:F0}  ceiling {_player.Sanity.LucidCeiling:F0}  band {_player.Sanity.Band}");
+    }
+
+    /// <summary>
+    /// Doors seal while a room is contested. This is what makes an encounter a ROOM rather
+    /// than a region you can walk out of — without it every fight is optional and the
+    /// Sanity economy never binds.
+    /// </summary>
+    private void SealDoors(PlacedRoom room, bool sealed_)
+    {
+        foreach (Doorway d in _geometry.Doors)
+        {
+            if (d.RoomA != room.NodeId && d.RoomB != room.NodeId) continue;
+            int key = d.RoomA * 10000 + d.RoomB;
+
+            if (sealed_)
+            {
+                if (_doorSeals.ContainsKey(key)) continue;
+                var body = new StaticBody2D { Position = d.WorldRect.Position + d.WorldRect.Size * 0.5f };
+                body.AddChild(new CollisionShape2D { Shape = new RectangleShape2D { Size = d.WorldRect.Size } });
+                AddChild(body);
+                _doorSeals[key] = body;
+            }
+            else if (_doorSeals.TryGetValue(key, out StaticBody2D? body))
+            {
+                body.QueueFree();
+                _doorSeals.Remove(key);
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- Draw
+
+    public override void _Draw()
+    {
+        // Sealed doorways, so the player can see why they cannot leave.
+        foreach (Doorway d in _geometry.Doors)
+        {
+            int key = d.RoomA * 10000 + d.RoomB;
+            bool isSealed = _doorSeals.ContainsKey(key);
+            DrawRect(d.WorldRect, isSealed ? new Color("B0122A") : new Color("2A3038"));
+        }
+
+        foreach (Items.Pickup p in _pickups.Pickups)
+        {
+            Color c = Items.PickupManager.ColourFor(p.Kind);
+            float r = Items.PickupManager.RadiusFor(p.Kind);
+            if (p.Kind == Items.PickupKind.SanityCandle)
+                DrawCircle(p.Position, r * 3f, c with { A = 0.25f });
+            DrawCircle(p.Position, r, c);
+        }
+
+        for (int i = 0; i < _player.MoteCount; i++)
+        {
+            PlayerController.Mote m = _player.GetMote(i);
+            Color c = m.Empowered ? new Color(1f, 0.85f, 0.45f) : new Color(0.5f, 0.88f, 0.83f);
+            DrawCircle(m.Position, m.Empowered ? 4.5f : 3f, c with { A = Mathf.Clamp(m.Life, 0f, 1f) });
+        }
+
+        foreach (Enemy e in _enemies.Enemies)
+        {
+            if (!e.Alive) continue;
+
+            Color body = e.HitFlash > 0f ? Colors.White
+                       : e.IsStunned ? e.Data.Tint.Lerp(new Color("4A4A6A"), 0.6f)
+                       : e.Data.Tint;
+            DrawCircle(e.Position, e.Data.BodyRadius, body);
+
+            if (_player.Sanity.WeakPointsVisible)
+                DrawCircle(e.WeakPointPosition, e.WeakPointRadius, new Color(1f, 0.9f, 0.35f, 0.85f));
+
+            if (e.State == EnemyState.Telegraph)
+                DrawArc(e.Position, e.Data.BodyRadius + 4f + e.TelegraphProgress * 8f,
+                        0, Mathf.Tau * e.TelegraphProgress, 20, new Color("FF5555"), 2f);
+
+            float hp = e.Health / e.Data.MaxHealth;
+            if (hp < 1f)
+                DrawRect(new Rect2(e.Position.X - 10, e.Position.Y - e.Data.BodyRadius - 7, 20 * hp, 2),
+                         new Color("D64545"));
+        }
+
+        if (_player.BanishPulse > 0f)
+        {
+            float t = 1f - _player.BanishPulse;
+            DrawArc(_player.BanishOrigin, Tune.BanishRadius * (0.25f + 0.75f * t), 0, Mathf.Tau, 48,
+                    new Color(0.55f, 0.9f, 0.85f, _player.BanishPulse * 0.9f), 3f);
+        }
+    }
+
+    private void HandleDebugKeys()
+    {
+        if (Input.IsKeyPressed(Key.F5))
+        {
+            GD.Print(_telemetry.Summary());
+            _telemetry.WriteCsv();
+        }
+        if (Input.IsKeyPressed(Key.G)) _player.Sanity.DebugSetCurrent(Tune.SanityMax);
+        if (Input.IsKeyPressed(Key.K) && !_player.Ascension.IsAscended) _player.Sanity.Drain(999f);
+    }
+}
+
+/// <summary>Batched floor rendering — one _Draw over merged tile runs, not a node per tile.</summary>
+public sealed partial class FloorTiles : Node2D
+{
+    public FloorGeometry Geometry = null!;
+    private static readonly Color FloorColour = new("1A1D24");
+    private static readonly Color GridColour = new("22262F");
+
+    public override void _Ready()
+    {
+        foreach (Rect2 r in Geometry.BuildFloorRects()) _rects.Add(r);
+        QueueRedraw();
+    }
+
+    private readonly List<Rect2> _rects = new();
+
+    public override void _Draw()
+    {
+        foreach (Rect2 r in _rects)
+        {
+            DrawRect(r, FloorColour);
+            DrawRect(r, GridColour, filled: false, width: 1f);
+        }
+    }
+}

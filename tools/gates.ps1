@@ -2,7 +2,8 @@
     Gate runner and launcher (docs/11 §2).
 
         ./tools/gates.ps1                       run every gate
-        ./tools/gates.ps1 -Arena                play the M1 combat slice
+        ./tools/gates.ps1 -Floor                PLAY a generated floor
+        ./tools/gates.ps1 -Arena                play the M1 combat slice (fixed arena)
         ./tools/gates.ps1 -Arena -MeteredDodge  play Build B (the M1 control arm)
         ./tools/gates.ps1 -Play                 the bullet stress arena
         ./tools/gates.ps1 -Lab                  the Pattern Lab
@@ -16,6 +17,7 @@
 param(
     [string]$Seed = "cthulhu",
     [switch]$Play,
+    [switch]$Floor,
     [switch]$Arena,
     [switch]$Lab,
     [string]$ShowSeed,
@@ -51,6 +53,11 @@ if (-not $SkipBuild) {
     if ($LASTEXITCODE -ne 0) { throw "C# build failed." }
 }
 
+if ($Floor) {
+    $extra = if ($MeteredDodge) { @("--metered-dodge") } else { @() }
+    & $godot --path $root res://scenes/debug/FloorRunner.tscn --seed $Seed @extra
+    exit $LASTEXITCODE
+}
 if ($Play)  { & $godot --path $root res://scenes/debug/StressTest.tscn  --seed $Seed; exit $LASTEXITCODE }
 if ($Arena) {
     # -MeteredDodge runs Build B, the M1 control arm (docs/11 §M1 test design).
@@ -85,6 +92,13 @@ if ($LASTEXITCODE -ne 0) { $failed += "banish" }
 Write-Host "`n### FLOOR GENERATION (10k seeds) ###"
 & $godot --headless --path $root res://scenes/debug/GenerationTest.tscn
 if ($LASTEXITCODE -ne 0) { $failed += "floor generation" }
+
+Write-Host "`n### PLAYABLE FLOOR SMOKE ###"
+foreach ($s in @("1", "7", "cthulhu")) {
+    & $godot --headless --path $root res://scenes/debug/FloorRunner.tscn --seed $s --quit-after 600 | Out-Null
+    if ($LASTEXITCODE -ne 0) { $failed += "floor smoke (seed $s)"; break }
+}
+if ($failed -notcontains "floor smoke") { Write-Host " boots and runs on 3 seeds: PASS" }
 
 # Advisory, not a gate. These are tuning targets — drifting out of them should start a
 # conversation, not break the build.
