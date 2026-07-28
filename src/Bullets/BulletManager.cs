@@ -148,6 +148,19 @@ public sealed partial class BulletManager : Node2D
     private readonly float[] _hitY = new float[MaxHitsPerTick];
     private int _hitCount;
 
+    /// <summary>How many enemy circles are currently registered. Diagnostic only.</summary>
+    public int RegisteredTargets => _tgtCount;
+
+    /// <summary>What the GPU was last told to draw. If this is 0 while Count is not,
+    /// the simulation is running and the render path is not.</summary>
+    public int DebugVisibleInstances => _bodyMesh?.VisibleInstanceCount ?? -1;
+
+    /// <summary>Offset of the first live bullet from a reference point, in pixels — tells
+    /// you whether bullets are on screen or have flown somewhere unexpected.</summary>
+    public string DebugFirstOffsetFrom(Vector2 origin)
+        => _count == 0 ? "(none)"
+         : $"({_posX[0] - origin.X:F0},{_posY[0] - origin.Y:F0})";
+
     public void BeginTargetRegistration() => _tgtCount = 0;
 
     public void RegisterTarget(int id, Vector2 position, float radius)

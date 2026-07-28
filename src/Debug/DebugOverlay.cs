@@ -17,9 +17,11 @@ namespace CultistOfCthulhu.Debug;
 public sealed partial class DebugOverlay : CanvasLayer
 {
     [Export] public NodePath BulletManagerPath { get; set; } = default!;
+    [Export] public NodePath PlayerBulletManagerPath { get; set; } = default!;
     [Export] public NodePath PlayerPath { get; set; } = default!;
 
     private BulletManager? _bullets;
+    private BulletManager? _playerBullets;
     private PlayerController? _player;
     private Label _label = null!;
     private bool _visible = true;
@@ -58,6 +60,8 @@ public sealed partial class DebugOverlay : CanvasLayer
         AddChild(panel);
 
         _bullets = ResolveOrFind<BulletManager>(BulletManagerPath);
+        if (PlayerBulletManagerPath is not null && !PlayerBulletManagerPath.IsEmpty)
+            _playerBullets = GetNodeOrNull<BulletManager>(PlayerBulletManagerPath);
         _player = ResolveOrFind<PlayerController>(PlayerPath);
         _lastGcBytes = GC.GetAllocatedBytesForCurrentThread();
     }
@@ -119,7 +123,12 @@ public sealed partial class DebugOverlay : CanvasLayer
             $"seed         {Hash.FormatSeed(GameRoot.Instance.RunSeed)}\n" +
             $"fps          {Engine.GetFramesPerSecond():F0}\n" +
             $"frame avg    {avg * 1000.0:F2} ms   worst {worst * 1000.0:F2} ms   [{verdict}]\n" +
-            $"bullets      {count} / {_bullets?.Capacity ?? 0}   peak {_peakBullets}   overflow {_bullets?.OverflowCount ?? 0}\n" +
+            $"enemy blts   {count} / {_bullets?.Capacity ?? 0}   peak {_peakBullets}   overflow {_bullets?.OverflowCount ?? 0}\n" +
+            // The overlay previously showed ONLY enemy bullets while calling them
+            // "bullets", so a report of "my bullets vanished" had no number to check
+            // against. Both counts, clearly labelled.
+            $"PLAYER blts  {_playerBullets?.Count ?? -1}   drawn {_playerBullets?.DebugVisibleInstances ?? -1}   " +
+            $"offset {(_playerBullets is not null && _player is not null ? _playerBullets.DebugFirstOffsetFrom(_player.GlobalPosition) : "n/a")}\n" +
             $"tick alloc   {allocVerdict}\n" +
             $"GC           gen0 {_gen0}  gen1 {_gen1}  gen2 {_gen2}\n" +
             PlayerLine();

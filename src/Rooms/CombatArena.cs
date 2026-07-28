@@ -191,6 +191,7 @@ public sealed partial class CombatArena : Node2D
         {
             Name = nameof(Debug.DebugOverlay),
             BulletManagerPath = _enemyBullets.GetPath(),
+            PlayerBulletManagerPath = _playerBullets.GetPath(),
             PlayerPath = _player.GetPath(),
         });
     }

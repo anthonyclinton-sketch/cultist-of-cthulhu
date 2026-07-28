@@ -195,6 +195,7 @@ public sealed partial class FloorRunner : Node2D
         {
             Name = nameof(Debug.DebugOverlay),
             BulletManagerPath = _enemyBullets.GetPath(),
+            PlayerBulletManagerPath = _playerBullets.GetPath(),
             PlayerPath = _player.GetPath(),
         });
     }
@@ -498,6 +499,7 @@ public sealed partial class FloorRunner : Node2D
     private string _screenshotPath = "";
     private int _screenshotAfter = 40;
     private bool _meleeDemo;
+    private bool _combatDemo;
     private int _frameCount;
 
     private void ParseScreenshotArgs()
@@ -508,6 +510,7 @@ public sealed partial class FloorRunner : Node2D
             else if (arg.StartsWith("--screenshot-after="))
                 _screenshotAfter = int.TryParse(arg["--screenshot-after=".Length..], out int n) ? n : 40;
             else if (arg == "--melee-demo") _meleeDemo = true;
+            else if (arg == "--combat-demo") _combatDemo = true;
         }
     }
 
@@ -516,11 +519,30 @@ public sealed partial class FloorRunner : Node2D
         if (_screenshotPath.Length == 0) return;
         _frameCount++;
 
-        // Put bullets on screen a few frames before the capture.
-        if (_frameCount == _screenshotAfter - 12)
+        // Set up EARLY and hold fire for a long window. Twice now a 12-frame window has
+        // produced "one shot fired" and been mistaken for a fault — at 4.5 rounds/sec that
+        // is simply the correct number. The window must span several fire cycles or the
+        // test cannot distinguish a broken gun from a fast one.
+        if (_frameCount == 30)
         {
             // Hold FIRE and let the real weapon path run. Spawning bullets by hand only
             // proved the renderer works; it could not tell us whether the gun does.
+            // Reproduce the reported case: bullets are fine in the empty spawn room and
+            // vanish once you enter a room with enemies. Teleport into the first combat
+            // room so the difference is the ENEMIES, not the geometry.
+            if (_combatDemo)
+            {
+                foreach (PlacedRoom r in _floor.Rooms)
+                {
+                    if (!IsCombatRole(r.Role)) continue;
+                    _player.GlobalPosition = _geometry.RoomCentreWorld(r);
+                    EnterRoom(r.NodeId);
+                    GD.Print($"[screenshot] combat demo — moved to {r.Template.Id} ({r.Role}), " +
+                             $"{_enemies.AliveCount} enemies");
+                    break;
+                }
+            }
+
             if (_meleeDemo)
             {
                 for (int i = 0; i < _player.Weapons.Count; i++)
@@ -529,6 +551,19 @@ public sealed partial class FloorRunner : Node2D
             }
             Input.ActionPress("fire");
             GD.Print("[screenshot] holding fire — exercising the real weapon path");
+        }
+
+        // Per-tick trace over the last 10 frames: are bullets being SPAWNED and then
+        // destroyed, or never spawned at all? Those need completely different fixes and a
+        // single end-of-run count cannot tell them apart.
+        if (_combatDemo && _frameCount > _screenshotAfter - 10 && _frameCount <= _screenshotAfter)
+        {
+            Weapon aw = _player.Weapons.Active;
+            GD.Print($"  f{_frameCount}  bullets {_playerBullets.Count,3}  " +
+                     $"renderUs {_playerBullets.LastRenderMicroseconds,6:F1}  " +
+                     $"shadows {_playerBullets.ShadowCount,3}  " +
+                     $"visible {_playerBullets.DebugVisibleInstances,3}  " +
+                     $"firstOffset {_playerBullets.DebugFirstOffsetFrom(_player.GlobalPosition)}");
         }
 
         if (_frameCount != _screenshotAfter) return;
