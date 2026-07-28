@@ -256,6 +256,36 @@ public sealed partial class EnemyManager : Node2D
         return struck;
     }
 
+    /// <summary>
+    /// Banish shove (docs/02 §5.2). Knockback falls off with distance so the edge of the
+    /// radius nudges and the centre throws — a flat impulse makes the whole room lurch
+    /// identically and reads as a cutscene rather than a shockwave.
+    /// Returns the number of enemies affected.
+    /// </summary>
+    public int ApplyBanish(Vector2 centre, float radius, float knockback, float stunSeconds)
+    {
+        int affected = 0;
+        float r2 = radius * radius;
+
+        for (int i = 0; i < _enemies.Count; i++)
+        {
+            Enemy e = _enemies[i];
+            if (!e.Alive) continue;
+
+            Vector2 delta = e.Position - centre;
+            float distSq = delta.LengthSquared();
+            if (distSq > r2) continue;
+
+            float dist = Mathf.Sqrt(distSq);
+            Vector2 dir = dist > 0.01f ? delta / dist : Vector2.Right;
+            float falloff = 1f - Mathf.Clamp(dist / radius, 0f, 1f);
+
+            e.ApplyBanish(dir * knockback * (0.4f + 0.6f * falloff), stunSeconds);
+            affected++;
+        }
+        return affected;
+    }
+
     /// <summary>Contact damage check. Returns the largest contact damage overlapping.</summary>
     public float QueryContactDamage(Vector2 playerPos, float playerRadius)
     {

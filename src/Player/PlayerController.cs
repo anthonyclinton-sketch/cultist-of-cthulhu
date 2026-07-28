@@ -65,6 +65,7 @@ public sealed partial class PlayerController : CharacterBody2D
     private float _autoReloadDelay;
     private Vector2 _smoothedVelocity;
     private float _contactDamageCooldown;
+    private float _banishCooldown;
 
     // Feel (docs/02 §8) — hit stop is applied by the arena, which owns the time scale.
     public float PendingHitStop { get; private set; }
@@ -91,6 +92,8 @@ public sealed partial class PlayerController : CharacterBody2D
         if (_blinkCooldown > 0f) _blinkCooldown -= dt;
         if (_damageIFrames > 0f) _damageIFrames -= dt;
         if (_contactDamageCooldown > 0f) _contactDamageCooldown -= dt;
+        if (_banishCooldown > 0f) _banishCooldown -= dt;
+        if (BanishPulse > 0f) BanishPulse = Mathf.Max(0f, BanishPulse - dt * 3.5f);
 
         UpdateAim();
 
@@ -377,23 +380,52 @@ public sealed partial class PlayerController : CharacterBody2D
 
         if (_banishHoldTime > 0f)
         {
-            if (!_banishConsumed && _banishHoldTime < Tune.OpenEyeHoldTime)
-            {
-                if (Sanity.TrySpend(Tune.SanityBanishCost))
-                {
-                    Telemetry?.NoteSanitySpend(Tune.SanityBanishCost);
-                    EmitSignal(SignalName.Banished);
-                }
-                else
-                {
-                    DeniedSustainCount++;
-                    Telemetry?.NoteDeniedSustain();
-                }
-            }
+            if (!_banishConsumed && _banishHoldTime < Tune.OpenEyeHoldTime) PerformBanish();
             _banishHoldTime = 0f;
             _banishConsumed = false;
         }
     }
+
+    /// <summary>
+    /// docs/02 §5.2. The panic button: clear the bullets, shove and stun the room.
+    ///
+    /// Gated purely on Sanity, which is what makes the 45 cost meaningful — dropping into
+    /// Fraying (40) takes your panic button away at precisely the moment a fight is going
+    /// badly enough to need it.
+    /// </summary>
+    private void PerformBanish()
+    {
+        if (_banishCooldown > 0f) return;
+
+        if (!Sanity.TrySpend(Tune.SanityBanishCost))
+        {
+            DeniedSustainCount++;
+            Telemetry?.NoteDeniedSustain();
+            return;
+        }
+
+        _banishCooldown = Tune.BanishCooldown;
+        Telemetry?.NoteSanitySpend(Tune.SanityBanishCost);
+
+        BulletsCleared = EnemyBullets?.ClearRadius(GlobalPosition, Tune.BanishRadius) ?? 0;
+        EnemiesStunned = Enemies?.ApplyBanish(GlobalPosition, Tune.BanishRadius,
+                                              Tune.BanishKnockback, Tune.BanishStunSeconds) ?? 0;
+
+        // You are unmaking part of reality, and it notices. This is also why hunting
+        // secret rooms by Banishing walls makes the floor angrier (docs/02 §7.1).
+        Corruption += Tune.BanishCorruption;
+
+        BanishPulse = 1f;
+        BanishOrigin = GlobalPosition;
+        EmitSignal(SignalName.Banished);
+    }
+
+    /// <summary>1 → 0 over the shockwave animation. Drives the expanding ring.</summary>
+    public float BanishPulse { get; private set; }
+    public Vector2 BanishOrigin { get; private set; }
+    public int BulletsCleared { get; private set; }
+    public int EnemiesStunned { get; private set; }
+    public float BanishCooldownRemaining => _banishCooldown;
 
     // ---------------------------------------------------------------- Damage & rewards
 

@@ -136,6 +136,11 @@ public sealed partial class DebugOverlay : CanvasLayer
             $"dash {dashSpeed:F0} px/s ({Tune.BlinkSpeedMultiplier:F1}x)   " +
             $"reach {Tune.BlinkEffectiveDistance:F0} px\n" +
             $"blink        {_player.Phase}   invuln {_player.IsInvulnerable}\n" +
-            $"hits taken   {_player.HitsTaken}   denied sustain {_player.DeniedSustainCount}";
+            $"banish       cost {Tune.SanityBanishCost:F0}   " +
+            $"{(s.CanAfford(Tune.SanityBanishCost) ? "READY" : "UNAFFORDABLE")}" +
+            $"{(_player.BanishCooldownRemaining > 0f ? $"  cd {_player.BanishCooldownRemaining:F1}s" : "")}" +
+            $"   last: {_player.BulletsCleared} bullets, {_player.EnemiesStunned} stunned\n" +
+            $"hits taken   {_player.HitsTaken}   denied sustain {_player.DeniedSustainCount}   " +
+            $"corruption {_player.Corruption:F2}";
     }
 }

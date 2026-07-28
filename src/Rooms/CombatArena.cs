@@ -363,6 +363,26 @@ public sealed partial class CombatArena : Node2D
             : new Color("FFB347") with { A = 0.75f };
     }
 
+    /// <summary>
+    /// The Banish shockwave. Expands to exactly Tune.BanishRadius so the player learns the
+    /// real reach by watching it — a ring that does not match the hitbox teaches a wrong
+    /// mental model, which is worse than no ring at all.
+    /// </summary>
+    private void DrawBanishPulse()
+    {
+        float p = _player.BanishPulse;
+        if (p <= 0f) return;
+
+        float t = 1f - p;                          // 0 -> 1 outward
+        float radius = Tune.BanishRadius * (0.25f + 0.75f * t);
+        float alpha = p * 0.9f;
+
+        DrawArc(_player.BanishOrigin, radius, 0, Mathf.Tau, 48,
+                new Color(0.55f, 0.9f, 0.85f, alpha), 3f + p * 3f);
+        DrawArc(_player.BanishOrigin, radius * 0.82f, 0, Mathf.Tau, 48,
+                new Color(1f, 1f, 1f, alpha * 0.5f), 1.5f);
+    }
+
     private void HandleDebugKeys()
     {
         if (Input.IsKeyPressed(Key.F5))
@@ -389,12 +409,25 @@ public sealed partial class CombatArena : Node2D
     /// </summary>
     public override void _Draw()
     {
+        DrawBanishPulse();
+
         foreach (Enemy e in _enemies.Enemies)
         {
             if (!e.Alive) continue;
 
-            Color body = e.HitFlash > 0f ? Colors.White : e.Data.Tint;
+            Color body = e.HitFlash > 0f ? Colors.White
+                       : e.IsStunned ? e.Data.Tint.Lerp(new Color("4A4A6A"), 0.6f)
+                       : e.Data.Tint;
             DrawCircle(e.Position, e.Data.BodyRadius, body);
+
+            // Stunned enemies need to be distinguishable at a glance, or Banish looks
+            // like it did nothing — the bullets vanishing is obvious, the interrupted
+            // wind-up is not.
+            if (e.IsStunned)
+            {
+                DrawArc(e.Position, e.Data.BodyRadius + 3f, 0, Mathf.Tau, 12,
+                        new Color(0.6f, 0.6f, 1f, 0.7f), 1.5f);
+            }
             DrawArc(e.Position, e.Data.BodyRadius, 0, Mathf.Tau, 16,
                     new Color(0, 0, 0, 0.5f), 1.5f);
 

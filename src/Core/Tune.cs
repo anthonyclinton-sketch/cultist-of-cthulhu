@@ -99,6 +99,18 @@ public static class Tune
     public const float BandHysteresis = 8f;
     public const float LowBandKillRefundMult = 0.5f;     // below Fraying, kills refund half
 
+    // --- Banish (docs/02 §5.2) — the panic button. Not an item; gated purely on Sanity,
+    // which is why entering Fraying (40) takes it away from you: it costs 45.
+    public const float BanishRadius = 9f * PixelsPerUnit;        // 144px
+    public const float BanishKnockback = 2f * PixelsPerUnit;     // 32px of push
+    public const float BanishStunSeconds = 0.6f;
+    public const float BanishCooldown = 1.2f;
+    /// <summary>You are unmaking part of reality, and it notices (docs/02 §7.1).</summary>
+    public const float BanishCorruption = 0.25f;
+    /// <summary>Out of combat, breaking a cracked wall is cheaper and costs no Corruption —
+    /// otherwise secret-hunting is an involuntary Corruption tax (docs/02 §5.2 review).</summary>
+    public const float BanishWallBreakCost = 15f;
+
     // --- Open the Eye (docs/02 §3.5.1) — the deliberate descent verb.
     public const float OpenEyeCost = 25f;
     public const float OpenEyeCooldown = 8f;

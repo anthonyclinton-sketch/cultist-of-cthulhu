@@ -54,11 +54,30 @@ Run content validation and both M0 gates:
 pwsh ./tools/gates.ps1
 ```
 
-Play the M1 combat slice — WASD move, `LMB` fire, `SPACE` Blink Step, `R` Recite, `RMB` Banish (hold for Open the Eye), `Q` swap weapon, `F3` overlay, `F5` dump telemetry:
+Play the M1 combat slice:
 
 ```bash
 pwsh ./tools/gates.ps1 -Arena
 ```
+
+### Controls
+
+| Action | Keyboard / Mouse | Gamepad | Sanity cost |
+|---|---|---|---|
+| Move | `WASD` | Left stick | — |
+| Aim | Mouse | Right stick | — |
+| Fire | `LMB` | RT | free · Grimoires 4/shot |
+| **Blink Step** (dash, i-frames) | `SPACE` | A | **free** |
+| **Recite** (reload) | `R` | X | 12 × reload weight |
+| **Banish** (clear bullets, stun room) | `RMB` **tap** | LB tap | **45** |
+| **Open the Eye** (descend a band) | `RMB` **hold 0.4s** | LB hold | 25+ |
+| Swap weapon | `Q` | Y | — |
+| Interact · Reverie · Map · Pause | `E` · `TAB` · `M` · `ESC` | B · Back · RB · Start | *bound, not yet implemented* |
+
+Pressing `R` **while already reloading** attempts a **Perfect Recitation** — hit the 0.16s
+window shown by the shrinking ring for half the Sanity back and +15% damage that magazine.
+
+**Debug:** `F3` overlay · `F5` dump telemetry CSV · `G` refill Sanity · `K` force Ascension
 
 Open the Pattern Lab — `←`/`→` switch pattern, `SPACE` fire, `A` auto-fire, `G` ghost orbit:
 

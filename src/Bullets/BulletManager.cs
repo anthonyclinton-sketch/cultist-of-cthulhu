@@ -262,6 +262,36 @@ public sealed partial class BulletManager : Node2D
         HitsThisTick = 0;
     }
 
+    /// <summary>
+    /// Destroy every bullet within <paramref name="radius"/> of a point. Returns how many
+    /// were removed. This is Banish (docs/02 §5.2).
+    ///
+    /// Iterates with swap-remove so it is O(n) with no allocation — and note the loop does
+    /// NOT advance on a hit, because SwapRemove moves the last bullet into the current
+    /// index. Advancing there would skip a bullet, leaving survivors inside the radius,
+    /// which reads to the player as Banish randomly not working.
+    /// </summary>
+    public int ClearRadius(Vector2 centre, float radius)
+    {
+        float r2 = radius * radius;
+        int cleared = 0;
+        int i = 0;
+
+        while (i < _count)
+        {
+            float dx = _posX[i] - centre.X;
+            float dy = _posY[i] - centre.Y;
+            if (dx * dx + dy * dy <= r2)
+            {
+                SwapRemove(i);
+                cleared++;
+                continue;
+            }
+            i++;
+        }
+        return cleared;
+    }
+
     // ================================================================== SIMULATION
 
     /// <summary>

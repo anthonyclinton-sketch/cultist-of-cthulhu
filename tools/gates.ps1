@@ -58,6 +58,10 @@ Write-Host "`n### ASCENSION INVARIANTS ###"
 & $godot --headless --path $root res://scenes/debug/AscensionTest.tscn
 if ($LASTEXITCODE -ne 0) { $failed += "ascension invariants" }
 
+Write-Host "`n### BANISH ###"
+& $godot --headless --path $root res://scenes/debug/BanishTest.tscn
+if ($LASTEXITCODE -ne 0) { $failed += "banish" }
+
 Write-Host "`n### M0 GATE 1 — BULLET PERFORMANCE ###"
 & $godot --headless --path $root res://scenes/debug/Benchmark.tscn --seed $Seed
 if ($LASTEXITCODE -ne 0) { $failed += "bullet performance" }

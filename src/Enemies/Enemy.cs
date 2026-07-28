@@ -58,6 +58,26 @@ public sealed class Enemy
     /// <summary>Set while the player is Ascended (docs/02 §6). Enemies break off and flee.</summary>
     public bool Ascended;
 
+    /// <summary>Banish stun (docs/02 §5.2). Cancels a wind-up in progress.</summary>
+    public float StunRemaining { get; private set; }
+    public bool IsStunned => StunRemaining > 0f;
+
+    /// <summary>
+    /// Stun and shove. Cancelling the pattern matters more than the stun duration: the
+    /// whole point of Banish is to interrupt an incoming volley, so an enemy that keeps
+    /// its telegraph and fires the moment the stun ends has not really been interrupted.
+    /// </summary>
+    public void ApplyBanish(Vector2 impulse, float stunSeconds)
+    {
+        if (!Alive) return;
+        StunRemaining = Mathf.Max(StunRemaining, stunSeconds);
+        _pattern.Cancel();
+        HoldsAttackToken = false;
+        _attackCooldown = Mathf.Max(_attackCooldown, stunSeconds);
+        Velocity += impulse;
+        if (State is EnemyState.Telegraph or EnemyState.Attack) Transition(EnemyState.Recover);
+    }
+
     public void Tick(float dt, Vector2 playerPos, Vector2 playerVel, FlowField field)
     {
         if (!Alive) return;
@@ -65,6 +85,16 @@ public sealed class Enemy
         if (HitFlash > 0f) HitFlash -= dt;
         if (_attackCooldown > 0f) _attackCooldown -= dt;
         _stateTimer += dt;
+
+        if (StunRemaining > 0f)
+        {
+            StunRemaining -= dt;
+            // Carry the knockback impulse, decaying. Freezing in place instead would make
+            // Banish feel like a pause button rather than a shove.
+            Velocity = Velocity.MoveToward(Vector2.Zero, Data.MoveSpeed * 2.5f * dt);
+            Position += Velocity * dt;
+            return;
+        }
 
         float distToPlayer = Position.DistanceTo(playerPos);
         Vector2 toPlayer = distToPlayer > 0.01f ? (playerPos - Position) / distToPlayer : Vector2.Right;
