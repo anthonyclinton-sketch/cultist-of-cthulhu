@@ -1,0 +1,23 @@
+[gd_resource type="Resource" script_class="EnemyData" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://src/Enemies/EnemyData.cs" id="1"]
+[ext_resource type="Resource" path="res://data/patterns/tallow_radial.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+DisplayName = "Tallow Man"
+Role = 1
+CodexText = "A wax figure of a man, life-sized, still warm. The candles in the Undercroft are made from something, and there are a great many candles."
+Tint = Color(0.86, 0.8, 0.6, 1)
+BodyRadius = 13.0
+MaxHealth = 68.0
+MoveSpeed = 0.0
+ContactDamage = 0.5
+DreadCost = 22.0
+SanityValue = 14.0
+PreferredRange = 0.0
+AggroRange = 1200.0
+AttackCooldown = 3.4
+AttackCooldownVariance = 0.5
+RecoverySeconds = 0.9
+PrimaryAttack = ExtResource("2")

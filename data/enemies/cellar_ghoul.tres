@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="EnemyData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Enemies/EnemyData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+DisplayName = "Cellar Ghoul"
+Role = 2
+CodexText = "It was buried in the churchyard above, and it did not stay there. Ghouls are not hostile by nature. This one has been told to be."
+Tint = Color(0.55, 0.62, 0.5, 1)
+BodyRadius = 11.0
+MaxHealth = 34.0
+MoveSpeed = 86.0
+ContactDamage = 0.5
+DreadCost = 14.0
+SanityValue = 8.0
+PreferredRange = 0.0
+AggroRange = 1400.0
+AttackCooldown = 1.6
+RecoverySeconds = 0.35
+LungeMultiplier = 1.9

@@ -1,0 +1,23 @@
+[gd_resource type="Resource" script_class="EnemyData" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://src/Enemies/EnemyData.cs" id="1"]
+[ext_resource type="Resource" path="res://data/patterns/netcaster_wall.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+DisplayName = "Netcaster"
+Role = 3
+CodexText = "Innsmouth stock, this far inland. The net is weighted with gold, which tells you what they think a catch is worth, and how little they think of gold."
+Tint = Color(0.45, 0.6, 0.58, 1)
+BodyRadius = 11.0
+MaxHealth = 48.0
+MoveSpeed = 34.0
+ContactDamage = 0.5
+DreadCost = 20.0
+SanityValue = 14.0
+PreferredRange = 230.0
+AggroRange = 1100.0
+AttackCooldown = 3.8
+AttackCooldownVariance = 0.6
+RecoverySeconds = 0.8
+PrimaryAttack = ExtResource("2")

@@ -1,0 +1,23 @@
+[gd_resource type="Resource" script_class="EnemyData" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://src/Enemies/EnemyData.cs" id="1"]
+[ext_resource type="Resource" path="res://data/patterns/brine_spiral.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+DisplayName = "Chanter"
+Role = 4
+CodexText = "It does not attack and it does not stop. The chant is not a language. Kill it first — everyone learns this, and everyone learns it late."
+Tint = Color(0.72, 0.45, 0.78, 1)
+BodyRadius = 10.0
+MaxHealth = 40.0
+MoveSpeed = 30.0
+ContactDamage = 0.0
+DreadCost = 24.0
+SanityValue = 14.0
+PreferredRange = 330.0
+AggroRange = 1400.0
+AttackCooldown = 5.2
+AttackCooldownVariance = 0.8
+RecoverySeconds = 1.1
+PrimaryAttack = ExtResource("2")

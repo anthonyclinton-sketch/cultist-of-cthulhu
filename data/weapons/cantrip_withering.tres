@@ -1,0 +1,30 @@
+[gd_resource type="Resource" script_class="WeaponData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Weapons/WeaponData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+DisplayName = "Cantrip: Withering"
+Tier = 0
+Family = 3
+CodexText = "The simplest working in the book, and the only one on the first page. Four syllables. You will find you have said them before you decided to."
+Damage = 9.0
+ProjectilesPerShot = 1
+SpreadDegrees = 0.0
+FireRate = 3.4
+MagazineSize = 1
+ReserveMagazines = 0
+ReloadDuration = 0.1
+ReloadWeight = 0.5
+SanityPerShot = 4.0
+ProjectileSpeed = 380.0
+ProjectileRadius = 4.0
+ProjectileRenderSize = 9.0
+ProjectileLifetime = 1.8
+Colour = Color(1, 0.847, 0.306, 1)
+Behaviour = 1
+BehaviourP0 = 1.4
+BehaviourP1 = 1.2
+IsMelee = false
+InscriptionSlots = 1
+IsBoundArm = true

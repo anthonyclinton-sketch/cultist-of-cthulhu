@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="WeaponData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Weapons/WeaponData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+DisplayName = "Trench Sweeper"
+Tier = 1
+Family = 0
+CodexText = "Winchester Model 1897, cut down. Banned by the Hague Convention for causing unnecessary suffering. Whoever drafted that clause had not met a ghoul."
+Damage = 5.5
+ProjectilesPerShot = 7
+SpreadDegrees = 26.0
+FireRate = 1.35
+MagazineSize = 5
+ReserveMagazines = 6
+ReloadDuration = 1.0
+ReloadWeight = 1.0
+ProjectileSpeed = 400.0
+ProjectileRadius = 3.0
+ProjectileRenderSize = 6.0
+ProjectileLifetime = 0.42
+Colour = Color(1, 0.42, 0.208, 1)
+IsMelee = false
+InscriptionSlots = 1

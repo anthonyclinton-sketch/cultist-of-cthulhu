@@ -1,0 +1,26 @@
+[gd_resource type="Resource" script_class="WeaponData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Weapons/WeaponData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+DisplayName = "Nitro Express"
+Tier = 2
+Family = 0
+CodexText = "A .600 double rifle built for elephant. The recoil dislocated its previous owner's shoulder. He kept firing. The Antarctic expedition photographs show him smiling."
+Damage = 62.0
+ProjectilesPerShot = 1
+SpreadDegrees = 0.5
+FireRate = 1.1
+MagazineSize = 2
+ReserveMagazines = 8
+ReloadDuration = 1.5
+ReloadWeight = 2.0
+ProjectileSpeed = 620.0
+ProjectileRadius = 5.0
+ProjectileRenderSize = 12.0
+ProjectileLifetime = 1.6
+Pierce = 3
+Colour = Color(0.757, 0.267, 0.055, 1)
+IsMelee = false
+InscriptionSlots = 2

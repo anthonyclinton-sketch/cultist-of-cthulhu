@@ -15,6 +15,25 @@ public enum BulletFlags
     Piercing = 1 << 2,
     /// <summary>Reflects off arena bounds instead of despawning.</summary>
     BouncesOffWalls = 1 << 3,
+    /// <summary>Fired by the player. Collides with enemies instead of the player.</summary>
+    PlayerOwned = 1 << 4,
+}
+
+/// <summary>
+/// Per-bullet motion modifier (docs/05 §4.2). Stored as a byte in the SoA arrays and
+/// dispatched by switch — never by interface, see ApplyBehaviour.
+/// </summary>
+public enum BulletBehaviour : byte
+{
+    Straight = 0,
+    /// <summary>p0 = turn rate rad/s, p1 = duration s.</summary>
+    Homing = 1,
+    /// <summary>p0 = lateral amplitude px/s, p1 = frequency Hz.</summary>
+    Wave = 2,
+    /// <summary>p0 = acceleration px/s², p1 = max speed multiplier.</summary>
+    Accelerate = 3,
+    /// <summary>p0 = hold duration s. Freeze, then resume — the "pause and fire" trick.</summary>
+    DelayThenGo = 4,
 }
 
 /// <summary>
@@ -55,6 +74,15 @@ public sealed partial class BulletManager : Node2D
     private readonly float[] _colR = new float[Cap];
     private readonly float[] _colG = new float[Cap];
     private readonly float[] _colB = new float[Cap];
+    private readonly float[] _damage = new float[Cap];
+
+    // Per-bullet behaviour (docs/05 §4.2 modifiers). Two generic float params rather than
+    // a per-behaviour struct: keeps the SoA layout flat and the switch branch-predictable.
+    private readonly byte[] _bhType = new byte[Cap];
+    private readonly float[] _bhP0 = new float[Cap];
+    private readonly float[] _bhP1 = new float[Cap];
+    private readonly float[] _age = new float[Cap];
+    private readonly float[] _baseSpeed = new float[Cap];
 
     // Previous-tick position, for render interpolation (docs/09 §4).
     private readonly float[] _prevX = new float[Cap];
@@ -62,6 +90,9 @@ public sealed partial class BulletManager : Node2D
     private readonly float[] _prevRot = new float[Cap];
 
     private int _count;
+
+    /// <summary>Where the player currently is, for homing. Set alongside TargetPosition.</summary>
+    private Vector2 HomingTarget => TargetPosition;
 
     // ---------------------------------------------------------------- Rendering
 
@@ -89,6 +120,47 @@ public sealed partial class BulletManager : Node2D
     /// <summary>Hits landed on the player this tick. Polled and cleared by PlayerController —
     /// a counter rather than an event, so there is no delegate allocation in the tick.</summary>
     public int HitsThisTick { get; private set; }
+
+    // ---------------------------------------------------------------- Enemy collision
+    // Used only when CollideWithEnemies is set (the player-bullet manager).
+    //
+    // docs/09 §3.2 specifies a uniform spatial hash here. At M1 scale that is premature:
+    // ~200 player bullets against <=64 enemies is 12,800 distance tests, which is cheaper
+    // than building and querying the hash. Revisit when enemy counts exceed ~120 — the
+    // arrays below are already the right shape to drop a hash in front of.
+
+    private const int MaxTargets = 128;
+    private readonly float[] _tgtX = new float[MaxTargets];
+    private readonly float[] _tgtY = new float[MaxTargets];
+    private readonly float[] _tgtR = new float[MaxTargets];
+    private readonly int[] _tgtId = new int[MaxTargets];
+    private int _tgtCount;
+
+    /// <summary>Set true on the player-bullet manager. Swaps the collision target set.</summary>
+    public bool CollideWithEnemies;
+
+    private const int MaxHitsPerTick = 256;
+    private readonly int[] _hitIds = new int[MaxHitsPerTick];
+    private readonly float[] _hitDamage = new float[MaxHitsPerTick];
+    private int _hitCount;
+
+    public void BeginTargetRegistration() => _tgtCount = 0;
+
+    public void RegisterTarget(int id, Vector2 position, float radius)
+    {
+        if (_tgtCount >= MaxTargets) return;
+        _tgtX[_tgtCount] = position.X;
+        _tgtY[_tgtCount] = position.Y;
+        _tgtR[_tgtCount] = radius;
+        _tgtId[_tgtCount] = id;
+        _tgtCount++;
+    }
+
+    /// <summary>Hits landed on enemies this tick, as parallel spans. Consumed by the
+    /// enemy manager and cleared at the start of the next tick.</summary>
+    public int EnemyHitCount => _hitCount;
+    public int GetHitId(int i) => _hitIds[i];
+    public float GetHitDamage(int i) => _hitDamage[i];
 
     public int Count => _count;
     public int Capacity => Cap;
@@ -141,7 +213,11 @@ public sealed partial class BulletManager : Node2D
         float lifetime,
         Color color,
         float renderSize = 0f,
-        BulletFlags flags = BulletFlags.None)
+        BulletFlags flags = BulletFlags.None,
+        BulletBehaviour behaviour = BulletBehaviour.Straight,
+        float bhParam0 = 0f,
+        float bhParam1 = 0f,
+        float damage = 0f)
     {
         if (_count >= Cap)
         {
@@ -164,6 +240,13 @@ public sealed partial class BulletManager : Node2D
         _colR[i] = color.R;
         _colG[i] = color.G;
         _colB[i] = color.B;
+
+        _damage[i] = damage;
+        _bhType[i] = (byte)behaviour;
+        _bhP0[i] = bhParam0;
+        _bhP1[i] = bhParam1;
+        _age[i] = 0f;
+        _baseSpeed[i] = velocity.Length();
 
         float rot = Mathf.Atan2(velocity.Y, velocity.X);
         _rot[i] = rot;
@@ -193,6 +276,7 @@ public sealed partial class BulletManager : Node2D
 
         float dt = (float)delta;
         HitsThisTick = 0;
+        _hitCount = 0;
 
         float tx = TargetPosition.X;
         float ty = TargetPosition.Y;
@@ -210,6 +294,17 @@ public sealed partial class BulletManager : Node2D
             _prevX[i] = _posX[i];
             _prevY[i] = _posY[i];
             _prevRot[i] = _rot[i];
+
+            float age = _age[i] + dt;
+            _age[i] = age;
+
+            // --- Behaviour (docs/05 §4.2). Straight is the overwhelmingly common case and
+            // is hoisted out so the branch predictor sees a stable path for most bullets.
+            byte bh = _bhType[i];
+            if (bh != (byte)BulletBehaviour.Straight)
+            {
+                ApplyBehaviour(i, bh, age, dt, tx, ty);
+            }
 
             float x = _posX[i] + _velX[i] * dt;
             float y = _posY[i] + _velY[i] * dt;
@@ -237,11 +332,31 @@ public sealed partial class BulletManager : Node2D
                 }
             }
 
-            // --- Player -------------------------------------------------------------
-            // Hallucinations skip this entirely: they are visually identical but cannot
-            // interact (docs/02 §3.4).
-            if (!dead && canHit && (flags & (int)BulletFlags.Hallucination) == 0)
+            // --- Targets ------------------------------------------------------------
+            if (!dead && CollideWithEnemies)
             {
+                // Player bullets: scan the registered enemy circles.
+                for (int t = 0; t < _tgtCount; t++)
+                {
+                    float dx = x - _tgtX[t];
+                    float dy = y - _tgtY[t];
+                    float rr = _radius[i] + _tgtR[t];
+                    if (dx * dx + dy * dy > rr * rr) continue;
+
+                    if (_hitCount < MaxHitsPerTick)
+                    {
+                        _hitIds[_hitCount] = _tgtId[t];
+                        _hitDamage[_hitCount] = _damage[i];
+                        _hitCount++;
+                    }
+                    if ((flags & (int)BulletFlags.Piercing) == 0) { dead = true; break; }
+                }
+            }
+            else if (!dead && canHit && (flags & (int)BulletFlags.Hallucination) == 0)
+            {
+                // Enemy bullets: one circle-circle test against the player.
+                // Hallucinations skip this entirely — visually identical, cannot interact
+                // (docs/02 §3.4).
                 float dx = x - tx;
                 float dy = y - ty;
                 float rr = _radius[i] + tr;
@@ -276,6 +391,84 @@ public sealed partial class BulletManager : Node2D
     /// </summary>
     public double LastTickMicroseconds { get; private set; }
 
+    /// <summary>
+    /// Per-bullet behaviour modifiers. Mutates velocity/rotation in place; integration
+    /// happens in the caller. No allocation, no virtual dispatch — a switch on a byte.
+    ///
+    /// A note on why this is not an interface with polymorphic Update(): 4096 virtual
+    /// calls per tick through a cold vtable costs more than the entire rest of the loop,
+    /// and every implementation would need its own object, which is 4096 heap allocations.
+    /// </summary>
+    private void ApplyBehaviour(int i, byte bh, float age, float dt, float tx, float ty)
+    {
+        switch ((BulletBehaviour)bh)
+        {
+            case BulletBehaviour.Homing:
+            {
+                // p0 = turn rate (rad/s), p1 = duration. Weak homing that expires — the
+                // design calls for 12°/s (docs/03 Whispering Rounds), which curves a shot
+                // without making it undodgeable.
+                if (age > _bhP1[i]) break;
+
+                float curr = _rot[i];
+                float desired = Mathf.Atan2(ty - _posY[i], tx - _posX[i]);
+                float delta = Mathf.AngleDifference(curr, desired);
+                float maxTurn = _bhP0[i] * dt;
+                float newRot = curr + Math.Clamp(delta, -maxTurn, maxTurn);
+
+                float spd = _baseSpeed[i];
+                _velX[i] = Mathf.Cos(newRot) * spd;
+                _velY[i] = Mathf.Sin(newRot) * spd;
+                _rot[i] = newRot;
+                break;
+            }
+
+            case BulletBehaviour.Wave:
+            {
+                // p0 = amplitude (px/s of lateral push), p1 = frequency (Hz).
+                // Perpendicular oscillation about the original heading.
+                float baseRot = _rot[i];
+                float spd = _baseSpeed[i];
+                float lateral = Mathf.Sin(age * _bhP1[i] * Mathf.Tau) * _bhP0[i];
+                _velX[i] = Mathf.Cos(baseRot) * spd + Mathf.Cos(baseRot + Mathf.Pi / 2f) * lateral;
+                _velY[i] = Mathf.Sin(baseRot) * spd + Mathf.Sin(baseRot + Mathf.Pi / 2f) * lateral;
+                break;
+            }
+
+            case BulletBehaviour.Accelerate:
+            {
+                // p0 = acceleration (px/s²), p1 = max speed multiplier.
+                float spd = _baseSpeed[i] + _bhP0[i] * age;
+                float cap = _baseSpeed[i] * (_bhP1[i] > 0f ? _bhP1[i] : 4f);
+                if (spd > cap) spd = cap;
+                if (spd < 0f) spd = 0f;
+                float r = _rot[i];
+                _velX[i] = Mathf.Cos(r) * spd;
+                _velY[i] = Mathf.Sin(r) * spd;
+                break;
+            }
+
+            case BulletBehaviour.DelayThenGo:
+            {
+                // p0 = hold duration. The classic "freeze in place, then fire" trick
+                // (docs/05 §4.2 .Delay). Reads as a pause and then a sudden wall.
+                if (age < _bhP0[i])
+                {
+                    _velX[i] = 0f;
+                    _velY[i] = 0f;
+                }
+                else if (_velX[i] == 0f && _velY[i] == 0f)
+                {
+                    float r = _rot[i];
+                    float spd = _baseSpeed[i];
+                    _velX[i] = Mathf.Cos(r) * spd;
+                    _velY[i] = Mathf.Sin(r) * spd;
+                }
+                break;
+            }
+        }
+    }
+
     private void SwapRemove(int i)
     {
         int last = --_count;
@@ -293,6 +486,12 @@ public sealed partial class BulletManager : Node2D
         _colR[i] = _colR[last];
         _colG[i] = _colG[last];
         _colB[i] = _colB[last];
+        _damage[i] = _damage[last];
+        _bhType[i] = _bhType[last];
+        _bhP0[i] = _bhP0[last];
+        _bhP1[i] = _bhP1[last];
+        _age[i] = _age[last];
+        _baseSpeed[i] = _baseSpeed[last];
         _prevX[i] = _prevX[last];
         _prevY[i] = _prevY[last];
         _prevRot[i] = _prevRot[last];

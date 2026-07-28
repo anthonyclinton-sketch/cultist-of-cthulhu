@@ -11,6 +11,8 @@
 param(
     [string]$Seed = "cthulhu",
     [switch]$Play,
+    [switch]$Arena,
+    [switch]$Lab,
     [switch]$SkipBuild
 )
 
@@ -42,12 +44,15 @@ if (-not $SkipBuild) {
     if ($LASTEXITCODE -ne 0) { throw "C# build failed." }
 }
 
-if ($Play) {
-    & $godot --path $root res://scenes/debug/StressTest.tscn --seed $Seed
-    exit $LASTEXITCODE
-}
+if ($Play)  { & $godot --path $root res://scenes/debug/StressTest.tscn  --seed $Seed; exit $LASTEXITCODE }
+if ($Arena) { & $godot --path $root res://scenes/debug/CombatArena.tscn --seed $Seed; exit $LASTEXITCODE }
+if ($Lab)   { & $godot --path $root res://scenes/debug/PatternLab.tscn  --seed $Seed; exit $LASTEXITCODE }
 
 $failed = @()
+
+Write-Host "`n### CONTENT VALIDATION ###"
+& $godot --headless --path $root res://scenes/debug/ContentValidator.tscn
+if ($LASTEXITCODE -ne 0) { $failed += "content validation" }
 
 Write-Host "`n### M0 GATE 1 — BULLET PERFORMANCE ###"
 & $godot --headless --path $root res://scenes/debug/Benchmark.tscn --seed $Seed

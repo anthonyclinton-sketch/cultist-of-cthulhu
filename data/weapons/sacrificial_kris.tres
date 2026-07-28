@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="WeaponData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Weapons/WeaponData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+DisplayName = "Sacrificial Kris"
+Tier = 0
+Family = 4
+CodexText = "A wavy-bladed knife from the Innsmouth reef hoard. Short, but it reaches further than it looks — and it has never yet cut the hand that holds it."
+Damage = 15.0
+ProjectilesPerShot = 1
+FireRate = 3.0
+MagazineSize = 1
+ReserveMagazines = 0
+ReloadDuration = 0.1
+ReloadWeight = 0.5
+Colour = Color(1, 0.702, 0.278, 1)
+IsMelee = true
+MeleeReach = 40.0
+MeleeArcDegrees = 100.0
+MeleeKnockback = 230.0
+MeleeSanityPerHit = 3.0
+InscriptionSlots = 1
+IsBoundArm = true

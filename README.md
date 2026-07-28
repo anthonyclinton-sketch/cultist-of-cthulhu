@@ -48,16 +48,22 @@ Beneath Arkham, a door has been open since 1692. You are a cultist who has chose
 Requires the **Godot 4.7-stable mono** build (pinned in `.godot-version`) and the **.NET 8 SDK**.
 If Godot isn't on `PATH`, set `$env:GODOT` to its console executable.
 
-Run both M0 gates:
+Run content validation and both M0 gates:
 
 ```bash
 pwsh ./tools/gates.ps1
 ```
 
-Play the stress arena — WASD, `SPACE` Blink Step, `RMB` Banish (hold for Open the Eye), `F3` overlay, `[`/`]` emitter count:
+Play the M1 combat slice — WASD move, `LMB` fire, `SPACE` Blink Step, `R` Recite, `RMB` Banish (hold for Open the Eye), `Q` swap weapon, `F3` overlay, `F5` dump telemetry:
 
 ```bash
-pwsh ./tools/gates.ps1 -Play
+pwsh ./tools/gates.ps1 -Arena
+```
+
+Open the Pattern Lab — `←`/`→` switch pattern, `SPACE` fire, `A` auto-fire, `G` ghost orbit:
+
+```bash
+pwsh ./tools/gates.ps1 -Lab
 ```
 
 ## Status
@@ -73,7 +79,32 @@ pwsh ./tools/gates.ps1 -Play
 | Same seed → identical state, 1800 ticks | exact | **identical** | ✅ |
 | Different seed → different state | must differ | **differs** | ✅ |
 
-Next: **M1 — Combat Vertical Slice**, whose sole job is to answer *"is the Sanity economy fun?"*
-against a free-dodge control build. See [docs/11 §M1 Test Design](docs/11-roadmap.md).
+**M1 — Combat Vertical Slice: systems core landed, playtest pending.**
+
+| M1 deliverable | State |
+|---|---|
+| Sanity system — costs, gains, ladder, Lucid Ceiling, Open the Eye, hysteresis | ✅ |
+| Recitation + Perfect Recitation | ✅ |
+| Banish | ✅ |
+| Pattern grammar + `PatternData` resources | ✅ 6 primitives, 4 behaviours |
+| Pattern Lab | ✅ |
+| 5 enemies covering all roles | ✅ |
+| `EnemyBrain` FSM + flow field + attack token pool | ✅ |
+| 6 weapons across 3 families (incl. Grimoire + melee) | ⚠️ 5 authored |
+| Dread Budget encounters with the 35% fodder floor | ✅ |
+| HUD — sanity ring, hearts, magazine pips, Perfect ring | ✅ |
+| Telemetry — all M1 metrics incl. metric 9 | ✅ |
+| Build B control arm | ✅ one-constant flip |
+| Hit stop / screen shake / Sanity motes | ⚠️ hit stop only |
+| 8 hand-authored Undercroft rooms | ❌ M2 — needs the TileMap room pipeline |
+| Enemy art beyond placeholder circles | ❌ deliberate — M1 answers a systems question |
+
+Gameplay numbers now load from `.tres` under `data/`, validated in CI against the
+readability contract. `src/Core/Tune.cs` still holds player-side constants and is the
+next thing to migrate.
+
+**The M1 question is not yet answered.** The build runs; nobody has played it. See
+[docs/11 §M1 Test Design](docs/11-roadmap.md) — the gate is metric 9, *does the ladder
+fire without the player deliberately descending?*
 
 Pre-production. No code written. Start at [docs/11-roadmap.md](docs/11-roadmap.md) → Milestone 0.

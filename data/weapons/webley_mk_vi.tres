@@ -1,0 +1,29 @@
+[gd_resource type="Resource" script_class="WeaponData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Weapons/WeaponData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+DisplayName = "Webley Mk VI"
+Tier = 1
+Family = 0
+CodexText = "Service revolver, .455 calibre. Six shots, and it has never once failed to fire. That is not luck. Something has taken an interest in it, and in you."
+Damage = 11.0
+ProjectilesPerShot = 1
+SpreadDegrees = 1.5
+FireRate = 4.5
+MagazineSize = 6
+ReserveMagazines = 6
+ReloadDuration = 0.75
+ReloadWeight = 0.5
+SanityPerShot = 0.0
+ProjectileSpeed = 460.0
+ProjectileRadius = 3.0
+ProjectileRenderSize = 7.0
+ProjectileLifetime = 1.5
+Pierce = 0
+Colour = Color(1, 0.702, 0.278, 1)
+Behaviour = 0
+IsMelee = false
+InscriptionSlots = 1
+IsBoundArm = true
