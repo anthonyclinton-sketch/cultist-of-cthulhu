@@ -74,11 +74,16 @@ public sealed class FloorGenerator
     /// almost immediately — it failed 92% of seeds. Placement is a constraint-satisfaction
     /// search and needs room to breathe.
     /// </summary>
-    private const int MaxBacktracks = 4000;
+    private const int MaxBacktracks = 12000;
     private const int RoomMargin = 1;            // tiles of clearance between rooms
     private const int MinCorridor = 4;
     private const int MaxCorridor = 30;
-    private const int MaxFloorExtent = 300;
+    /// <summary>
+    /// Raised from 300 when rooms were scaled to be screen-relative. Rooms grew ~2.5x
+    /// linearly, so floors did too — a 15-room floor now spans 250-450 tiles rather than
+    /// 90-120, and the old ceiling rejected almost every layout.
+    /// </summary>
+    private const int MaxFloorExtent = 1400;
 
     private readonly List<RoomTemplate> _templates;
     private readonly List<FloorFlow> _flows;
@@ -512,12 +517,30 @@ public sealed class FloorGenerator
             Vector2I pos = AttachPosition(placed[opt.host], template, opt.side, opt.hostOffset, opt.myOffset);
             Vector2I c = pos + new Vector2I(template.WidthTiles / 2, template.HeightTiles / 2);
             float dist = Mathf.Abs(c.X - centroid.X) + Mathf.Abs(c.Y - centroid.Y);
-            scored.Add((-dist + rng.Range(0f, 40f), opt));
+            // Jitter scales with room size. A fixed 40px wobble was meaningful when rooms
+            // were 16 tiles across and negligible once they were 70 — every floor started
+            // collapsing into the same tightly-wound spiral, and tightly-wound layouts are
+            // exactly the ones that fail to place the last few rooms.
+            float jitter = (template.WidthTiles + template.HeightTiles) * 0.9f;
+            scored.Add((-dist + rng.Range(0f, jitter), opt));
         }
         scored.Sort((a, b) => b.score.CompareTo(a.score));
 
+        // Try only the best few placements per node — BEAM WIDTH, not exhaustive search.
+        //
+        // The backtrack budget is shared across the whole recursion, so trying every
+        // candidate (easily 60+ once rooms have two doors per wall) burns it exploring a
+        // very wide tree at shallow depth and never reaches a complete layout. Adding
+        // exits actually made the fallback rate WORSE for exactly this reason, which is
+        // the tell that the search was budget-limited rather than option-limited.
+        //
+        // Packing problems want depth. Capping the branching factor spends the same budget
+        // going further down, and the options are already sorted best-first by compactness
+        // so the ones dropped are the sprawling placements that would likely fail anyway.
+        const int BeamWidth = 10;
+
         options.Clear();
-        foreach (var s in scored) options.Add(s.opt);
+        for (int i = 0; i < scored.Count && i < BeamWidth; i++) options.Add(scored[i].opt);
 
         foreach ((int hostId, Side side, int ho, int mo) in options)
         {

@@ -17,7 +17,16 @@ namespace CultistOfCthulhu.Enemies;
 /// </summary>
 public sealed class FlowField
 {
-    public const int CellSize = 24;
+    /// <summary>
+    /// Raised from 24 to 40 when rooms were scaled up.
+    ///
+    /// The field covers the WHOLE floor, so its cost is quadratic in floor size: at 24px
+    /// cells a 450-tile floor is 7200px across = 300x300 = 90,000 cells to BFS every
+    /// repath. At 40px that falls to ~32,000 — and the coarser resolution costs nothing in
+    /// practice because Enemy.MoveTowardPreferredRange already falls back to a direct
+    /// vector inside the last stride, where cell granularity would otherwise show as jitter.
+    /// </summary>
+    public const int CellSize = 40;
 
     private readonly int _w, _h;
     private readonly Vector2 _origin;

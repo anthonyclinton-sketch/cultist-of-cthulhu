@@ -95,6 +95,23 @@ public static class UndercroftContent
     /// Placeholder room templates. Exit offsets are deliberately varied — a set of rooms
     /// that all put their doors at the centre of each wall produces layouts that look
     /// gridded, which is the tell that gives away a procedural dungeon.
+    ///
+    /// SIZING IS RELATIVE TO THE SCREEN, not to a tile count that sounds reasonable. The
+    /// viewport is 640x360 native = 40 x 22.5 tiles, and the first pass authored combat
+    /// rooms at 16x12 to 26x20 — smaller than one screen. That is fatal for a bullet hell:
+    /// if the whole room fits on screen there is nowhere to dodge TO, radial patterns have
+    /// no room to expand before hitting a wall, and the camera never moves so the space
+    /// reads as a box rather than a place.
+    ///
+    /// Roughly, by role:
+    ///   connector   ~0.9 x 0.7 screens   a rest beat, deliberately tight
+    ///   easy        ~1.2 x 1.1 screens   just over one screen
+    ///   medium      ~1.6 x 1.4 screens
+    ///   hard        ~1.9 x 1.9 screens
+    ///   hub         ~1.8 x 2.3 screens   the biggest non-boss space
+    ///   boss        ~2.4 x 2.9 screens
+    ///
+    /// That lands every room 4-8x its previous AREA.
     /// </summary>
     public static List<RoomTemplate> Rooms()
     {
@@ -112,38 +129,47 @@ public static class UndercroftContent
         }
 
         // Entrances — safe, several exits so the first choice happens immediately.
-        Room("entrance_stair", RoomRole.Entrance, 16, 12, new[] { 8 }, new[] { 6 }, new[] { 6 }, new[] { 5 }, 0f);
-        Room("entrance_vault", RoomRole.Entrance, 20, 14, new[] { 10 }, new[] { 8 }, new[] { 7 }, new[] { 4 }, 0f);
-        Room("entrance_salt", RoomRole.Entrance, 14, 14, new[] { 7 }, new[] { 4 }, new[] { 7 }, new[] { 7 }, 0f);
+        Room("entrance_stair", RoomRole.Entrance, 40, 26, new[] { 20 }, new[] { 14 }, new[] { 13 }, new[] { 10 }, 0f);
+        Room("entrance_vault", RoomRole.Entrance, 46, 30, new[] { 24 }, new[] { 18 }, new[] { 16 }, new[] { 9 }, 0f);
+        Room("entrance_salt", RoomRole.Entrance, 34, 30, new[] { 17 }, new[] { 10 }, new[] { 15 }, new[] { 15 }, 0f);
 
-        // Easy combat.
-        Room("cellar_small", RoomRole.CombatEasy, 16, 12, new[] { 5 }, new[] { 9 }, new[] { 6 }, new[] { 5 }, 45f);
-        Room("cellar_pillars", RoomRole.CombatEasy, 20, 14, new[] { 6, 14 }, new[] { 10 }, new[] { 8 }, new[] { 4 }, 55f);
-        Room("cellar_long", RoomRole.CombatEasy, 26, 10, new[] { 8 }, new[] { 18 }, new[] { 5 }, new[] { 5 }, 50f);
-        Room("cold_store", RoomRole.CombatEasy, 14, 16, new[] { 7 }, new[] { 5 }, new[] { 6, 12 }, new[] { 8 }, 48f);
+        // EXIT COUNT SCALES WITH SIZE, and that is a placement requirement as much as a
+        // design one. Scaling rooms up while leaving one door per wall meant a 70-tile room
+        // offered no more attachment points than a 26-tile one, so the layout search had
+        // far fewer options per unit of area and the fallback rate rose from 0.2% to 1.7%.
+        // Widening the search barely helped; adding doors fixed it. A big room with a
+        // single door per wall also just reads as sparse.
+
+        // Easy combat — just over one screen.
+        Room("cellar_small", RoomRole.CombatEasy, 44, 26, new[] { 12, 32 }, new[] { 26 }, new[] { 13 }, new[] { 11 }, 180f);
+        Room("cellar_pillars", RoomRole.CombatEasy, 52, 30, new[] { 14, 36 }, new[] { 16, 38 }, new[] { 17 }, new[] { 9 }, 220f);
+        Room("cellar_long", RoomRole.CombatEasy, 68, 22, new[] { 20, 50 }, new[] { 22, 46 }, new[] { 11 }, new[] { 11 }, 200f);
+        Room("cold_store", RoomRole.CombatEasy, 36, 36, new[] { 18 }, new[] { 12 }, new[] { 13, 26 }, new[] { 12, 26 }, 190f);
 
         // Medium combat.
-        Room("ossuary", RoomRole.CombatMed, 22, 16, new[] { 6, 16 }, new[] { 11 }, new[] { 8 }, new[] { 6 }, 80f);
-        Room("long_table", RoomRole.CombatMed, 30, 12, new[] { 10 }, new[] { 20 }, new[] { 6 }, new[] { 6 }, 85f);
-        Room("chandler", RoomRole.CombatMed, 18, 18, new[] { 9 }, new[] { 6 }, new[] { 9 }, new[] { 12 }, 75f);
-        Room("flooded_cellar", RoomRole.CombatMed, 24, 14, new[] { 8 }, new[] { 15 }, new[] { 7 }, new[] { 5 }, 78f);
+        Room("ossuary", RoomRole.CombatMed, 58, 36, new[] { 15, 42 }, new[] { 16, 40 }, new[] { 18 }, new[] { 13 }, 320f);
+        Room("long_table", RoomRole.CombatMed, 76, 28, new[] { 26, 56 }, new[] { 22, 52 }, new[] { 14 }, new[] { 14 }, 340f);
+        Room("chandler", RoomRole.CombatMed, 46, 42, new[] { 23 }, new[] { 15 }, new[] { 13, 29 }, new[] { 16, 28 }, 300f);
+        Room("flooded_cellar", RoomRole.CombatMed, 62, 34, new[] { 20, 44 }, new[] { 18, 40 }, new[] { 17 }, new[] { 12 }, 312f);
 
-        // Hard combat.
-        Room("crypt_deep", RoomRole.CombatHard, 26, 20, new[] { 8, 18 }, new[] { 13 }, new[] { 10 }, new[] { 8 }, 120f);
-        Room("bone_gallery", RoomRole.CombatHard, 32, 14, new[] { 12 }, new[] { 20 }, new[] { 7 }, new[] { 7 }, 115f);
+        // Hard combat — nearly two screens each way. Radial patterns need this much room
+        // to expand before they reach a wall.
+        Room("crypt_deep", RoomRole.CombatHard, 70, 48, new[] { 20, 48 }, new[] { 22, 50 }, new[] { 16, 32 }, new[] { 19 }, 480f);
+        Room("bone_gallery", RoomRole.CombatHard, 84, 36, new[] { 30, 60 }, new[] { 24, 54 }, new[] { 18 }, new[] { 18 }, 460f);
 
         // Hubs — 3+ exits by definition, and they are the degree bottleneck of every flow.
         // A flow node cannot have more neighbours than its room has exits, so the widest
         // hub here sets the ceiling on how interconnected any authored flow may be.
-        Room("undercroft_crossing", RoomRole.Hub, 24, 20, new[] { 8, 16 }, new[] { 12 }, new[] { 10 }, new[] { 10 }, 70f);
-        Room("great_cistern", RoomRole.Hub, 28, 22, new[] { 10 }, new[] { 14, 22 }, new[] { 11 }, new[] { 8 }, 75f);
+        Room("undercroft_crossing", RoomRole.Hub, 64, 48, new[] { 20, 42 }, new[] { 22, 44 }, new[] { 16, 32 }, new[] { 24 }, 280f);
+        Room("great_cistern", RoomRole.Hub, 72, 52, new[] { 26, 50 }, new[] { 34, 54 }, new[] { 26 }, new[] { 20 }, 300f);
         // Six exits, for double-loop flows like the figure eight.
-        Room("nine_angles", RoomRole.Hub, 30, 24, new[] { 9, 21 }, new[] { 9, 21 }, new[] { 12 }, new[] { 12 }, 80f);
+        Room("nine_angles", RoomRole.Hub, 76, 56, new[] { 22, 52 }, new[] { 22, 52 }, new[] { 18, 38 }, new[] { 18, 38 }, 320f);
 
-        // Connectors — pacing rest, no enemies.
-        Room("salt_threshold", RoomRole.Connector, 14, 8, new[] { 7 }, new[] { 7 }, new[] { 4 }, new[] { 4 }, 0f);
-        Room("narrow_stair", RoomRole.Connector, 10, 14, new[] { 5 }, new[] { 5 }, new[] { 7 }, new[] { 7 }, 0f);
-        Room("graffiti_hall", RoomRole.Connector, 20, 8, new[] { 6 }, new[] { 14 }, new[] { 4 }, new[] { 4 }, 0f);
+        // Connectors — pacing rest, no enemies. Deliberately the tightest spaces on the
+        // floor, so the big rooms read as big by contrast.
+        Room("salt_threshold", RoomRole.Connector, 34, 18, new[] { 17 }, new[] { 17 }, new[] { 9 }, new[] { 9 }, 0f);
+        Room("narrow_stair", RoomRole.Connector, 24, 34, new[] { 12 }, new[] { 12 }, new[] { 17 }, new[] { 17 }, 0f);
+        Room("graffiti_hall", RoomRole.Connector, 48, 18, new[] { 14 }, new[] { 34 }, new[] { 9 }, new[] { 9 }, 0f);
 
         // Dead-end specials.
         //
@@ -155,15 +181,16 @@ public static class UndercroftContent
         // the hardest rooms on the floor to place and was a major source of layout
         // failure. In the finished art each of these still reads as a one-door room —
         // the unused sides are simply never opened.
-        Room("reward_alcove", RoomRole.Reward, 12, 10, new[] { 6 }, new[] { 6 }, new[] { 5 }, new[] { 5 }, 0f);
-        Room("gaunts_stall", RoomRole.Shop, 18, 12, new[] { 9 }, new[] { 9 }, new[] { 6 }, new[] { 6 }, 0f);
-        Room("black_font", RoomRole.Shrine, 12, 12, new[] { 6 }, new[] { 6 }, new[] { 6 }, new[] { 6 }, 0f);
-        Room("hidden_ossuary", RoomRole.Secret, 10, 10, new[] { 5 }, new[] { 5 }, new[] { 5 }, new[] { 5 }, 0f);
-        Room("hidden_cache", RoomRole.Secret, 12, 8, new[] { 6 }, new[] { 6 }, new[] { 4 }, new[] { 4 }, 0f);
+        Room("reward_alcove", RoomRole.Reward, 32, 24, new[] { 16 }, new[] { 16 }, new[] { 12 }, new[] { 12 }, 0f);
+        Room("gaunts_stall", RoomRole.Shop, 44, 28, new[] { 22 }, new[] { 22 }, new[] { 14 }, new[] { 14 }, 0f);
+        Room("black_font", RoomRole.Shrine, 30, 28, new[] { 15 }, new[] { 15 }, new[] { 14 }, new[] { 14 }, 0f);
+        Room("hidden_ossuary", RoomRole.Secret, 26, 24, new[] { 13 }, new[] { 13 }, new[] { 12 }, new[] { 12 }, 0f);
+        Room("hidden_cache", RoomRole.Secret, 30, 20, new[] { 15 }, new[] { 15 }, new[] { 10 }, new[] { 10 }, 0f);
 
-        // Boss approach.
-        Room("boss_foyer", RoomRole.BossFoyer, 16, 12, new[] { 8 }, new[] { 8 }, new[] { 6 }, new[] { 6 }, 0f);
-        Room("doorstep_arena", RoomRole.Boss, 34, 26, new[] { 17 }, new[] { 17 }, new[] { 13 }, new[] { 13 }, 0f);
+        // Boss approach. The arena is the largest space in the game — a four-phase fight
+        // with screen-filling patterns cannot happen in a room you can cross in two dashes.
+        Room("boss_foyer", RoomRole.BossFoyer, 38, 28, new[] { 19 }, new[] { 19 }, new[] { 14 }, new[] { 14 }, 0f);
+        Room("doorstep_arena", RoomRole.Boss, 96, 66, new[] { 48 }, new[] { 48 }, new[] { 33 }, new[] { 33 }, 0f);
 
         return list;
     }

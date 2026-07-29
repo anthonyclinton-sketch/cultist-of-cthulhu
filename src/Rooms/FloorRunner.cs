@@ -344,7 +344,17 @@ public sealed partial class FloorRunner : Node2D
     /// </summary>
     private void StartEncounter(PlacedRoom room)
     {
-        float budget = Mathf.Min(room.Template.ThreatCapacity, 34f + _roomsCleared * 13f);
+        // Budget scales with ROOM AREA as well as progression. Without this, scaling rooms
+        // up made every encounter sparse — four enemies is a fight in a one-screen room
+        // and a walk in a four-screen one, and the player would simply run past them.
+        //
+        // Scaled by the SQUARE ROOT of area, not area itself: enemy count rising linearly
+        // with floor space turns a big room into a slog rather than a bigger fight.
+        float areaTiles = room.Width * room.Height;
+        float areaScale = Mathf.Clamp(Mathf.Sqrt(areaTiles / 1100f), 0.85f, 2.3f);
+
+        float budget = Mathf.Min(room.Template.ThreatCapacity,
+                                 (34f + _roomsCleared * 13f) * areaScale);
         if (room.Role == RoomRole.CombatHard) budget *= 1.25f;
 
         float fodderFloor = budget * 0.35f;

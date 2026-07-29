@@ -106,7 +106,20 @@ Injection is the game's **content-pacing valve**. It's where "one shop per floor
 
 A `RoomTemplate` is a **hand-authored Godot scene** containing:
 
-- A `TileMapLayer` for floor/walls (authored at 16px, rooms are 12×9 to 40×30 tiles)
+- A `TileMapLayer` for floor/walls (authored at 16px, rooms are **24×18 to 96×66 tiles**)
+
+> **[PLAYTEST — 26 Jul 2026] Room sizes must be authored RELATIVE TO THE SCREEN, and the first pass was far too small.**
+>
+> The viewport is 640×360 native = **40 × 22.5 tiles**. The original range (12×9 to 40×30) meant most combat rooms were *smaller than one screen*, which is fatal for this genre: there is nowhere to dodge *to*, radial patterns hit a wall before they finish expanding, and the camera never moves so a room reads as a box rather than a place.
+>
+> Rooms are now sized in screens, by role — connector ~0.9×0.7, easy ~1.2×1.1, medium ~1.6×1.4, hard ~1.9×1.9, hub ~1.8×2.3, boss ~2.4×2.9. That is **4–8× the previous area**. Floor extent rose from ~95 tiles square to ~200–450.
+>
+> **Three knock-on changes were required, and finding them is why the sweep exists:**
+> 1. `MaxFloorExtent` 300 → 1400, or almost every layout was rejected.
+> 2. `FlowField.CellSize` 24 → 40. The field covers the whole floor, so its cost is quadratic in floor size — at 24px a 450-tile floor is 90,000 cells to BFS per repath.
+> 3. **Encounter budget now scales with room area** (by its *square root* — linear scaling turns a big room into a slog rather than a bigger fight). Without it, four enemies in a four-screen room is something you walk past.
+>
+> **And a genuine algorithmic finding.** Scaling rooms up pushed the fallback rate from 0.22% to 1.7%. Widening the search barely helped; *adding more doors made it worse*. That is the tell that the layout search was **budget-limited, not option-limited** — the shared backtrack budget was being spent exploring a very wide tree at shallow depth. Capping the branching factor to the best 10 placements per node (beam search, options already sorted best-first by compactness) took it to 0.77%. **Packing problems want depth, not breadth.**
 - **Exit markers** — each with a side (N/S/E/W), a tile offset, and a width (1 or 2 tiles)
 - **Spawn anchors** — tagged points where the populator may place enemies, props, chests, or hazards
 - Optional **authored props** that are always present (pillars, tables, pits)
