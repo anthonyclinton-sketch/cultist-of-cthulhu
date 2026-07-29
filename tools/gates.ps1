@@ -5,6 +5,7 @@
         ./tools/gates.ps1 -Floor                PLAY a run: floor 1, boss, summary
         ./tools/gates.ps1 -Floor -Floors 3      play a three-floor run
         ./tools/gates.ps1 -Floor -Autorun       WATCH the run loop play itself
+        ./tools/gates.ps1 -Floor -Corruption 3  start Corrupted (3 = Awakened, 10 = Yellow Sign)
         ./tools/gates.ps1 -Arena                play the M1 combat slice (fixed arena)
         ./tools/gates.ps1 -Arena -MeteredDodge  play Build B (the M1 control arm)
         ./tools/gates.ps1 -Play                 the bullet stress arena
@@ -26,6 +27,7 @@ param(
     [switch]$MeteredDodge,
     [switch]$Autorun,
     [int]$Floors = 1,
+    [double]$Corruption = 0,
     [switch]$SkipBuild
 )
 
@@ -64,6 +66,13 @@ if ($Floor) {
     # -Autorun plays the run itself, windowed, so the loop can be WATCHED rather than
     # only asserted. It is the same harness the gate runs headlessly.
     if ($Autorun) { $extra += "--autorun" }
+    # Start already Corrupted. Reaching Corruption 3 by Banishing takes twelve Banishes at
+    # 45 Sanity each, so this is the only practical way to look at the thresholds.
+    # InvariantCulture: on a comma-decimal locale "3.5" would be formatted as "3,5" and the
+    # game's float.TryParse would silently reject it.
+    if ($Corruption -gt 0) {
+        $extra += "--corruption=" + $Corruption.ToString([System.Globalization.CultureInfo]::InvariantCulture)
+    }
     & $godot --path $root res://scenes/debug/FloorRunner.tscn --seed $Seed @extra
     exit $LASTEXITCODE
 }
