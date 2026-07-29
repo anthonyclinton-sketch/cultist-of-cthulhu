@@ -21,6 +21,16 @@ public sealed partial class Minimap : Node2D
 
     private readonly HashSet<int> _seen = new();
 
+    /// <summary>
+    /// Set by the Ledger Stone shrine (docs/08 §5): every room is drawn as if visited.
+    ///
+    /// This is what the shrine SELLS. It charges 15 Sanity and its entire stated reward is
+    /// "reveals the full floor map" — a shrine whose payment produces no visible effect is
+    /// the exact phantom feature docs/AUDIT exists to catch, and it would be indelible in a
+    /// playtest as "the shrine did nothing".
+    /// </summary>
+    public bool Revealed;
+
     private static readonly Color Unvisited = new(0.35f, 0.38f, 0.45f, 0.55f);
     private static readonly Color Visited = new(0.55f, 0.60f, 0.70f, 0.85f);
     private static readonly Color ClearedCol = new(0.35f, 0.55f, 0.50f, 0.85f);
@@ -53,7 +63,7 @@ public sealed partial class Minimap : Node2D
                 origin + new Vector2((r.Position.X - b.Position.X) * scale, (r.Position.Y - b.Position.Y) * scale),
                 new Vector2(r.Width * scale, r.Height * scale));
 
-            bool seen = _seen.Contains(r.NodeId);
+            bool seen = Revealed || _seen.Contains(r.NodeId);
             if (!seen) { DrawRect(box, Unvisited, filled: false, width: 1f); continue; }
 
             DrawRect(box, Cleared.Contains(r.NodeId) ? ClearedCol : Visited);

@@ -54,6 +54,7 @@ public sealed partial class FloorRunner : Node2D
 
     private RoomContent _content = null!;
     private UI.ReverieScreen _reverie = null!;
+    private Minimap _minimap = null!;
     private int _hitsAtRoomStart;
 
     public override void _Ready()
@@ -226,7 +227,8 @@ public sealed partial class FloorRunner : Node2D
         var layer = new CanvasLayer { Name = "UI" };
         _hud = new Hud { Name = nameof(Hud), Player = _player };
         layer.AddChild(_hud);
-        layer.AddChild(new Minimap { Name = nameof(Minimap), Floor = _floor, Player = _player, Cleared = _clearedRooms });
+        _minimap = new Minimap { Name = nameof(Minimap), Floor = _floor, Player = _player, Cleared = _clearedRooms };
+        layer.AddChild(_minimap);
 
         _reverie = new UI.ReverieScreen { Name = nameof(UI.ReverieScreen), Player = _player };
         layer.AddChild(_reverie);
@@ -287,6 +289,7 @@ public sealed partial class FloorRunner : Node2D
         if (_player.IsDead) OnDeath();
 
         HandleReverie();
+        _minimap.Revealed = _content.RevealFloor;
 
         QueueRedraw();
         HandleDebugKeys();

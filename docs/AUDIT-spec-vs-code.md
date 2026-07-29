@@ -1,5 +1,11 @@
 # Audit — Specified vs. Implemented
 
+**Pass 1:** 26 July 2026 · docs/02 (Player & Combat)
+**Pass 2:** 29 July 2026 · docs/03 §3, docs/04, docs/05 §7, docs/08 — the M2 systems.
+See [§M2](#m2-sweep--29-july-2026) at the end.
+
+---
+
 **Date:** 26 July 2026 · **Scope:** docs/02 (Player & Combat) against `src/`
 
 ## Why this exists
@@ -144,3 +150,139 @@ Seven items, chosen by one criterion: **does its absence corrupt the M1 measurem
 Re-run this sweep at the end of every milestone, and treat any ❌ on a system the
 milestone claims to deliver as a blocker. The cost of the sweep is an hour; the cost of a
 phantom feature is a playtest that measures the wrong game.
+
+---
+---
+
+# M2 sweep — 29 July 2026
+
+**Scope:** docs/04 (Sigil Circle), docs/03 §3 (Inscriptions), docs/08 (Economy & Shops),
+docs/05 §7 (Boss 1), and the docs/11 M2 checklist.
+
+Same legend as above.
+
+## docs/04 — The Sigil Circle
+
+| Spec | State | Note |
+|---|---|---|
+| 7×7 grid, corners cut, locked Heart | ✅ | **37 usable cells, not 41 — see the discrepancy note below** |
+| Three ley lines, positions fixed, types rolled per run | ✅ | Drawn without replacement, so no run gets three of a kind |
+| Ley of Blood / Salt / Ash / Gate | ✅ | Gate's "adjacent to everything on the line" included |
+| Bonus once per ley, both if on the cross | ✅ | |
+| Seven polyomino shapes, 1–5 cells | ✅ | |
+| Free rotation in 90° steps, mirroring | ✅ | |
+| **Directional sigils — facing matters in play** | ⚠️ | Facing is stored, rotates with the tile and is drawn. **No sigil effect currently reads it.** Tekeli-li adds dash distance in the DASH direction, not the tile's. The layer is scaffolded, not live |
+| Adjacency tags/wants, 8 tags, named synergies | ✅ | Named per tag, per §4.3's argument against Gungeon's per-pair model |
+| Synergy cap 6, then flat +3% damage | ✅ | |
+| Reliquary (6), removal free and instant | ✅ | |
+| Dissolution at `20 × cells × tierMult`, Reliquary-only | ✅ | |
+| Balance rules §8.1, §8.2, §8.3, §8.5, §8.6, §8.7 | ✅ | Enforced in `SigilData.Validate()`, gated in CI |
+| Balance rule §8.4 — 6+ sigils per shape | ❌ | Impossible at 20 sigils across 7 shapes. Reported by the content gate as advisory with the count; revisit at ~70 |
+| Reverie: Tab, pauses, outside combat only | ✅ | The combat gate is enforced by the room owner |
+| Reverie: invalid placement states the reason | ✅ | Reason comes from `CanPlace`, so rule and message cannot drift |
+| Reverie: auto-arrange, deliberately mediocre | ✅ | First-fit, ignores adjacency entirely |
+| **Reverie: live diff panel while dragging** | ⚠️ | Shows the RESOLVED state and the held tile's rules text. It does not show a before/after delta of what a placement would gain or lose |
+| Reverie: "?" opens a Codex entry | ❌ | Needs the Codex (M3) |
+| ~70 sigils | 🔜 | 20 built, which is the M2 target |
+
+> **DISCREPANCY — docs/04 §2.1 says the circle has 41 usable cells. Its own diagram has 37.**
+> Summing the diagram's rows: 3 + 5 + 7 + 7 + 7 + 5 + 3 = **37**. The build follows the
+> diagram. This matters because §6 and [08 §8](08-economy-and-meta.md) both reason about
+> sigil oversupply against 41 — so the intended "you must cut things" pressure is slightly
+> **higher** than the docs claim, not lower. Not silently changed: the shape is what the
+> diagram draws, and the number is what needs correcting.
+
+## docs/03 §3 — Inscriptions
+
+| Spec | State | Note |
+|---|---|---|
+| 1–3 slots per weapon by tier | ✅ | From `WeaponData.InscriptionSlots` |
+| Held per weapon, lost with the weapon | ✅ | Projected into effective stats on read, never applied destructively |
+| Bench: pay gold, pick from 3, apply to a carried weapon | ✅ | Applies to the ACTIVE weapon; Q swaps |
+| Conflict groups grey out with a reason | ✅ | `Weapon.RejectReason` returns the text the prompt shows |
+| `Vessel Rune` restrictions (no Grimoire, no melee) | ✅ | Generalised as `RequiresAmmo` |
+| Reroll at 50 gold, +25 each time | ✅ | |
+| Prices scale by floor ×1.0 → ×2.0 | ✅ | Tier→price bands gated in `Validate()` |
+| **Overwrite a filled slot at 1.5×** | ❌ | `ReplaceInscription` exists and nothing calls it. The bench refuses when slots are full |
+| **Transfer inscriptions to another weapon, 60g each** | ❌ | The review added this to resolve the Inscriptions-vs-ammo-rotation conflict; not built |
+| **Live stat preview before purchase** | ⚠️ | Rules text is shown. No DPS/sustain delta — the "no blind buys" promise is only half kept |
+| ~35 inscriptions | 🔜 | 15 built against an M2 target of 12 |
+
+## docs/08 — Economy, shops, rooms
+
+| Spec | State | Note |
+|---|---|---|
+| Gold and Keys as in-run currencies | ✅ | |
+| Yellow Fragments | 🔜 | Meta progression, M3 |
+| Keys purchasable at 60 +15 per purchase | ✅ | The deliberately bad rate, and it worsens |
+| Guaranteed key chest in a connector | ✅ | Once per floor |
+| Reward room: choice of two sigils | ✅ | Taking one consumes the group |
+| Third option at Corruption ≥3 for +1 Corruption | ✅ | Rolled at inflated Corruption so it genuinely reads a tier up |
+| Floor tier table + Corruption tier shift (20/45/70%) | ✅ | |
+| Shop: 2 sigils, bench, consumables, reroll, bowl | ✅ | |
+| **Shop: weapon slot** | ❌ | Needs a weapon-drop/swap flow that does not exist yet |
+| **Shop: The Odd Item** | ❌ | |
+| **Stealing from Gaunt** | ❌ | Gaunt is not an entity — the stall is furniture |
+| Chests: tiered, key-gated | ✅ | Rust free, gilt 1 key; behind Med/Hard rooms and in secrets |
+| **Blasphemous chests** | 🔜 | M3 per docs/11 |
+| **Mimics** | ❌ | |
+| Shrines: one-shot, cost stated before commitment | ✅ | 4 of 7 |
+| Black Font, Weighing Stone, Altar of Nodens, Ledger Stone | ✅ | Black Font's Corruption cost is rolled and SHOWN, not rolled on use |
+| Cleansing Pool, Bargainer's Table, Mirror of Yith | ❌ | Each needs an M3 system. **Deliberately absent rather than present and lying** — §5's whole rule is that a shrine states its true cost |
+| Ledger Stone reveals the floor | ✅ *(fixed in this pass)* | The sweep found it setting a flag nothing read — a shrine charging 15 Sanity for no visible effect |
+
+## docs/05 §7 — The Thing on the Doorstep
+
+| Spec | State | Note |
+|---|---|---|
+| Phase 1: a human fight, pistol shots and dodges | ✅ | Strafes at range, aimed volleys with lead |
+| Phase 2: the host loses control, the body inverts | ✅ | Radial and spiral, holds ground, bigger silhouette, timed adds |
+| Phase 3: abandons the corpse, formless | ✅ | Faster, smaller, no contact damage |
+| **The grab — costs 30 Sanity, not health** | ✅ | Through `Drain`, so it can reach zero and latch Ascension |
+| Readable telegraph on every volley (R3) | ✅ | Same `PatternPlayer` as every enemy; gated |
+| Phase transitions, invulnerable, screen cleared | ✅ | |
+| Boss drop: a guaranteed sigil | ✅ | Plus gold, a key and a heart |
+| Taunts / dialogue | ⚠️ | Two lines, printed to the console. No presentation layer exists yet |
+
+## docs/11 — the M2 checklist
+
+| Item | State |
+|---|---|
+| Full floor generator | ✅ |
+| Room Template validator | ✅ *(this pass — interiors are flood-checked)* |
+| Generation Visualiser | ✅ `gates.ps1 -ShowSeed` |
+| **Flow Graph editor plugin** | ❌ Flows are authored in code |
+| 30 Undercroft rooms across all roles | ⚠️ **32 templates, but they are still placeholder rectangles with authored obstacle blocks, not hand-built TileMap scenes.** The level-design pipeline does not exist |
+| Dread Budget populator | ✅ |
+| **Wave system** | ❌ Encounters spawn once on entry |
+| Sigil Circle + Reverie, 20 sigils, adjacency + leys | ✅ |
+| Gold, keys, chests, loot tables, pity | ✅ |
+| Shop + Inscription Bench, 12 Inscriptions | ✅ (15) |
+| Boss 1, all 3 phases | ✅ |
+| **Unbroken Seals** | ❌ |
+| **Save/load, run state, basic Vestibule** | ❌ |
+| 10k-seed sweep green in CI | ✅ |
+
+## What this pass found that no gate was watching
+
+1. **Flow selection was biased by the retry loop.** Re-rolling the flow inside each attempt
+   meant the reported flow was always whichever succeeded, so the easiest topology won by
+   attrition: 60/25/14 across three flows authored to be equally likely. The sweep's
+   "every authored flow is reachable" assertion passed the whole time, because *reachable*
+   is not *fair*. Fixed; now 34/34/32 with the fallback rate down from 0.77% to 0.07%.
+2. **A boss phase change could never be observed.** Set inside `TakeDamage` during the
+   enemy manager's tick, cleared by the room owner at the top of its own tick — and Godot
+   ticks parents before children. Same bug class as Ascension's zero-detection; same fix,
+   a consume-once latch.
+3. **Bullets and enemies had never met a wall.** Both hand-simulate movement and never
+   touch the physics server. Now gated as a positional invariant.
+
+## Deliberately still open, and worth knowing before the M1 playtest
+
+- **`Tune.cs` still holds gameplay constants**, violating docs/09 §5. Sigils, inscriptions,
+  bosses and rooms all moved to `.tres` this pass; the player and Sanity constants did not.
+- **Directional sigils do nothing directionally.** If a playtest is meant to say anything
+  about docs/04 §3.2's orientation layer, it currently cannot.
+- **The Reverie's diff panel is not a diff.** §7 asks for a preview of what a placement
+  gains and loses; the player currently sees only the state after committing.
+- **No save/load.** A run ends when the process does.
