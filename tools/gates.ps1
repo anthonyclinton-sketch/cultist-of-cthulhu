@@ -89,6 +89,10 @@ Write-Host "`n### BANISH ###"
 & $godot --headless --path $root res://scenes/debug/BanishTest.tscn
 if ($LASTEXITCODE -ne 0) { $failed += "banish" }
 
+Write-Host "`n### BOSS 1 ###"
+& $godot --headless --path $root res://scenes/debug/BossTest.tscn
+if ($LASTEXITCODE -ne 0) { $failed += "boss" }
+
 Write-Host "`n### WALL COLLISION ###"
 & $godot --headless --path $root res://scenes/debug/WallCollisionTest.tscn
 if ($LASTEXITCODE -ne 0) { $failed += "wall collision" }

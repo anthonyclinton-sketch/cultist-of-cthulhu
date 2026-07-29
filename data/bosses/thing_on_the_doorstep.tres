@@ -1,0 +1,53 @@
+[gd_resource type="Resource" script_class="BossData" load_steps=10 format=3]
+
+[ext_resource type="Script" path="res://src/Enemies/BossData.cs" id="1"]
+[ext_resource type="Resource" path="res://data/patterns/doorstep_pistol.tres" id="2"]
+[ext_resource type="Resource" path="res://data/patterns/doorstep_sweep.tres" id="3"]
+[ext_resource type="Resource" path="res://data/patterns/doorstep_ward.tres" id="4"]
+[ext_resource type="Resource" path="res://data/patterns/doorstep_inversion.tres" id="5"]
+[ext_resource type="Resource" path="res://data/patterns/doorstep_spiral.tres" id="6"]
+[ext_resource type="Resource" path="res://data/patterns/doorstep_grasp.tres" id="7"]
+[ext_resource type="Resource" path="res://data/patterns/doorstep_closing.tres" id="8"]
+[ext_resource type="Resource" path="res://data/patterns/doorstep_passenger.tres" id="9"]
+
+[resource]
+script = ExtResource("1")
+Id = "thing_on_the_doorstep"
+DisplayName = "The Thing on the Doorstep"
+CodexText = "Edward Derby, of the Derbys, who read too much and was liked by everyone. He is still in there. That is the part nobody wants explained twice."
+MaxHealth = 900.0
+BodyRadius = 22.0
+MoveSpeed = 96.0
+ContactDamage = 0.5
+Tint = Color(0.65, 0.353, 0.431, 1)
+Phase2At = 0.62
+Phase1A = ExtResource("2")
+Phase1B = ExtResource("3")
+Phase1C = ExtResource("4")
+Phase1Cooldown = 1.5
+Phase1Range = 235.0
+Phase1SpeedMultiplier = 1.0
+Phase3At = 0.28
+Phase2A = ExtResource("5")
+Phase2B = ExtResource("6")
+Phase2C = ExtResource("3")
+Phase2Cooldown = 1.25
+Phase2Range = 155.0
+Phase2SpeedMultiplier = 0.8
+AddCount = 2
+AddInterval = 14.0
+Phase3A = ExtResource("9")
+Phase3B = ExtResource("8")
+Phase3C = ExtResource("7")
+Phase3Cooldown = 1.0
+Phase3Range = 95.0
+Phase3SpeedMultiplier = 1.55
+GrabSanityCost = 30.0
+GrabTelegraph = 0.75
+GrabLungeSpeed = 430.0
+GrabLungeSeconds = 0.5
+GrabCooldown = 4.5
+GrabRange = 260.0
+GoldReward = 80
+KeyReward = 1
+PhaseTransitionSeconds = 1.4

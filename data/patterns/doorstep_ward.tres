@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="PatternData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Bullets/PatternData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+Primitive = 3
+Count = 11
+WallGaps = 2
+Extent = 340.0
+BurstCount = 2
+BurstInterval = 0.7
+TelegraphSeconds = 0.6
+Speed = 150.0
+Radius = 5.0
+RenderSize = 11.0
+Lifetime = 7.0
+Colour = Color(0.62, 0.7, 0.95, 1)

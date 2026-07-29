@@ -32,6 +32,7 @@ public sealed partial class ContentValidator : Node
         failed += ValidateDir<PatternData>("res://data/patterns", p => p.Validate(), ref checkedCount);
         failed += ValidateDir<WeaponData>("res://data/weapons", w => w.Validate(), ref checkedCount);
         failed += ValidateDir<EnemyData>("res://data/enemies", e => e.Validate(), ref checkedCount);
+        failed += ValidateDir<BossData>("res://data/bosses", b => b.Validate(), ref checkedCount);
         failed += ValidateDir<Sigils.SigilData>("res://data/sigils", s => s.Validate(), ref checkedCount);
         failed += ValidateDir<InscriptionData>("res://data/inscriptions", i => i.Validate(), ref checkedCount);
 

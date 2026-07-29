@@ -92,6 +92,9 @@ public sealed partial class FloorRunner : Node2D
             if (data is not null) _roster.Add(data);
             else GD.PrintErr($"[FloorRunner] failed to load {path}");
         }
+
+        _bossData = GD.Load<BossData>("res://data/bosses/thing_on_the_doorstep.tres");
+        if (_bossData is null) GD.PrintErr("[FloorRunner] failed to load the boss.");
     }
 
     private void GenerateFloor()
@@ -271,10 +274,16 @@ public sealed partial class FloorRunner : Node2D
         _enemies.HallucinationRatio = _player.Sanity.HallucinationRatio;
         _player.Sanity.InCombat = _encounterActive && _enemies.AliveCount > 0;
 
+        TickBoss(dt);
+
         _telemetry.Tick(dt, _player.Sanity);
         _camera.Offset = _player.ShakeOffset(_rng);
 
-        if (_encounterActive && _enemies.AliveCount == 0) ClearRoom();
+        // A boss room is cleared when the BOSS dies, not when the room empties. Without
+        // this the fight would end the first time the phase-2 adds were killed and the
+        // boss happened to be the only thing left, because AliveCount counts enemies and
+        // the boss is not one.
+        if (_encounterActive && _enemies.AliveCount == 0 && _boss is null) ClearRoom();
         if (_player.IsDead) OnDeath();
 
         HandleReverie();
@@ -415,7 +424,8 @@ public sealed partial class FloorRunner : Node2D
     }
 
     private static bool IsCombatRole(RoomRole r) =>
-        r is RoomRole.CombatEasy or RoomRole.CombatMed or RoomRole.CombatHard or RoomRole.Hub;
+        r is RoomRole.CombatEasy or RoomRole.CombatMed or RoomRole.CombatHard or RoomRole.Hub
+          or RoomRole.Boss;
 
     private void OnNonCombatRoom(PlacedRoom room)
     {
@@ -427,8 +437,135 @@ public sealed partial class FloorRunner : Node2D
     /// docs/06 §6.1 Dread Budget. Scales with rooms cleared and the room's authored
     /// ThreatCapacity, with the >=35% fodder floor that keeps the Sanity economy solvent.
     /// </summary>
+    /// <summary>
+    /// docs/05 §7 — The Thing on the Doorstep.
+    ///
+    /// The boss room does not take a Dread budget. Everything about the encounter is
+    /// authored in the boss's own data, and letting the room budget also spawn a fistful of
+    /// acolytes on top would make the phase-2 adds — the fight's only add pressure, timed
+    /// deliberately — indistinguishable from background noise.
+    /// </summary>
+    private void StartBossFight(PlacedRoom room)
+    {
+        if (_bossData is null)
+        {
+            GD.PrintErr("[FloorRunner] boss room reached with no boss data; treating it as cleared.");
+            _clearedRooms.Add(room.NodeId);
+            return;
+        }
+
+        Vector2 centre = _geometry.RoomCentreWorld(room);
+        _boss = new Boss(_bossData, centre + new Vector2(0f, -140f), _enemyBullets,
+                         Hash.Derive(GameRoot.Instance.RunSeed, "boss", room.NodeId));
+        _boss.SetWalls(_enemies.Walls);
+        _enemies.Boss = _boss;
+
+        _bossRoom = room.NodeId;
+        _hud.Boss = _boss;
+        _encounterActive = true;
+        _pendingSealRoom = room.NodeId;
+        _telemetry.BeginRoom(_roomsCleared + 1, _player.Sanity);
+
+        GD.Print($"[BOSS] {_bossData.DisplayName} — {_bossData.MaxHealth:F0} HP, " +
+                 $"phases at {_bossData.Phase2At:P0} / {_bossData.Phase3At:P0}");
+    }
+
+    private BossData? _bossData;
+    private Boss? _boss;
+    private int _bossRoom = -1;
+
+    /// <summary>
+    /// Advance the boss and settle everything it owes: adds, the grab, and its death.
+    ///
+    /// Kept out of <see cref="EnemyManager"/> deliberately. The manager knows about bodies
+    /// and bullets; the adds need the floor's enemy roster and its geometry, the grab needs
+    /// the player's Sanity, and the death needs the room's drop tables — all of which are
+    /// this class's business and none of which belong in the thing that has to stay cheap
+    /// enough to tick sixty enemies.
+    /// </summary>
+    private void TickBoss(float dt)
+    {
+        if (_boss is null) return;
+
+        _boss.HallucinationRatio = _player.Sanity.HallucinationRatio;
+        _boss.Tick(dt, _player.GlobalPosition, _player.Velocity);
+
+        int phase = _boss.ConsumePhaseChange();
+        if (phase > 0) OnBossPhase(phase);
+        if (_boss.PendingAdds > 0) SpawnBossAdds(_boss.PendingAdds);
+
+        // The grab (docs/05 §7). It costs SANITY, not health — which at low Sanity means it
+        // does not hurt, it disarms: no reload, no Banish, and one more hit from Ascension.
+        if (_boss.GrabConnectedThisTick && !_player.IsInvulnerable)
+        {
+            _player.SufferGrab(_bossData!.GrabSanityCost);
+            GD.Print($"[BOSS] the passenger got a hold of you — −{_bossData.GrabSanityCost:F0} Sanity.");
+        }
+
+        if (_enemies.ConsumeBossKilled()) OnBossDefeated();
+    }
+
+    private void OnBossPhase(int phase)
+    {
+        // Clear the screen on a phase change. Not a mercy: the transition is invulnerable
+        // and stationary, so bullets left over from the previous phase would be hitting a
+        // player who has no target to punish and no reason to be there.
+        _enemyBullets.Clear();
+        _player.AddTrauma(0.55f);
+
+        string line = phase switch
+        {
+            2 => "\"—and I told her, I told her the WELL was—\" The sentence does not finish. "
+                 + "The body finds a new arrangement.",
+            _ => "It leaves the body where it falls and comes for the only other one in the room.",
+        };
+        GD.Print($"[BOSS] phase {phase}. {line}");
+    }
+
+    private void SpawnBossAdds(int count)
+    {
+        if (_roster.Count == 0 || _boss is null) return;
+
+        for (int i = 0; i < count; i++)
+        {
+            EnemyData pick = PickEnemy(needFodder: true);
+            float a = _rng.NextAngle();
+            Vector2 at = _boss.Position + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * 110f;
+            _enemies.Spawn(pick, at);
+        }
+    }
+
+    private void OnBossDefeated()
+    {
+        BossData data = _bossData!;
+        GD.Print($"[BOSS] {data.DisplayName} is dead. What is left is a man, and he is grateful.");
+
+        _enemies.Boss = null;
+        _hud.Boss = null;
+        _enemyBullets.Clear();
+        _player.AddTrauma(0.8f);
+
+        Vector2 at = _boss?.Position ?? _player.GlobalPosition;
+        _boss = null;
+
+        // Guaranteed drop (docs/04 §6): a boss always yields a sigil, plus gold and a key.
+        var rng = Hash.Derive(GameRoot.Instance.RunSeed, "boss_drop", _bossRoom);
+        Sigils.SigilData? s = Sigils.SigilPool.Draw(1, _player.Corruption, rng, null);
+        if (s is not null && _player.Circle.AddToReliquary(s))
+        {
+            if (_reverie is not null) _reverie.PendingOffer = s;
+            GD.Print($"[BOSS] dropped {s.DisplayName} [{s.Tier}]. TAB to inscribe it.");
+        }
+
+        _player.AddGold(data.GoldReward);
+        _player.AddKeys(data.KeyReward);
+        _pickups.Spawn(Items.PickupKind.Heart, at, 1f, rng);
+    }
+
     private void StartEncounter(PlacedRoom room)
     {
+        if (room.Role == RoomRole.Boss) { StartBossFight(room); return; }
+
         // Budget scales with ROOM AREA as well as progression. Without this, scaling rooms
         // up made every encounter sparse — four enemies is a fight in a one-screen room
         // and a walk in a four-screen one, and the player would simply run past them.
@@ -595,6 +732,9 @@ public sealed partial class FloorRunner : Node2D
         _roomsCleared = 0;
         _drops.ResetForRun();
         _content.ResetForRun();
+        _boss = null;
+        _bossRoom = -1;
+        _hud.Boss = null;
         if (_reverie.IsOpen) _reverie.Close();
 
         PlacedRoom entrance = _floor.FindRole(RoomRole.Entrance)!;
@@ -871,12 +1011,71 @@ public sealed partial class FloorRunner : Node2D
                          new Color("D64545"));
         }
 
+        DrawBoss();
+
         if (_player.BanishPulse > 0f)
         {
             float t = 1f - _player.BanishPulse;
             DrawArc(_player.BanishOrigin, Tune.BanishRadius * (0.25f + 0.75f * t), 0, Mathf.Tau, 48,
                     new Color(0.55f, 0.9f, 0.85f, _player.BanishPulse * 0.9f), 3f);
         }
+    }
+
+    /// <summary>
+    /// The boss, and the two things the player has to be able to read at a glance: which
+    /// phase it is in, and whether a grab is winding up.
+    ///
+    /// The grab telegraph is drawn as a filled cone rather than a ring. docs/05 R3 requires
+    /// a readable wind-up, and a ring says "something is coming" while a cone says "it is
+    /// coming THERE" — for an attack whose whole counter is a sideways step, the direction
+    /// is the information.
+    /// </summary>
+    private void DrawBoss()
+    {
+        if (_boss is null || !_boss.Alive) return;
+
+        Color body = _boss.HitFlash > 0f ? Colors.White : _boss.PhaseTint;
+        float r = _boss.BodyRadius;
+
+        // Phase 3 has no body: a shimmer with a hole in it, so it reads as a presence
+        // rather than a creature.
+        if (_boss.Phase == 3)
+        {
+            DrawCircle(_boss.Position, r * 1.9f, body with { A = 0.18f });
+            DrawArc(_boss.Position, r, 0, Mathf.Tau, 28, body, 2.5f);
+        }
+        else
+        {
+            DrawCircle(_boss.Position, r, body);
+        }
+
+        if (_boss.Invulnerable)
+        {
+            float t = _boss.TransitionProgress;
+            DrawArc(_boss.Position, r + 6f + t * 26f, 0, Mathf.Tau, 40,
+                    new Color(1f, 1f, 1f, 1f - t), 2f);
+        }
+
+        if (_boss.State == BossState.Telegraph)
+        {
+            DrawArc(_boss.Position, r + 5f + _boss.TelegraphProgress * 10f,
+                    0, Mathf.Tau * _boss.TelegraphProgress, 28, new Color("FF5555"), 2.5f);
+        }
+
+        if (_boss.State == BossState.GrabWindup)
+        {
+            Vector2 toPlayer = (_player.GlobalPosition - _boss.Position).Normalized();
+            float half = Mathf.DegToRad(16f);
+            float a = Mathf.Atan2(toPlayer.Y, toPlayer.X);
+            float reach = _bossData!.GrabLungeSpeed * _bossData.GrabLungeSeconds;
+
+            var pts = new Vector2[3];
+            pts[0] = _boss.Position;
+            pts[1] = _boss.Position + new Vector2(Mathf.Cos(a - half), Mathf.Sin(a - half)) * reach;
+            pts[2] = _boss.Position + new Vector2(Mathf.Cos(a + half), Mathf.Sin(a + half)) * reach;
+            DrawColoredPolygon(pts, new Color(0.85f, 0.25f, 0.35f, 0.22f));
+        }
+
     }
 
     private void HandleDebugKeys()

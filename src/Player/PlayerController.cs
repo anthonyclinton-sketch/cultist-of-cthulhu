@@ -999,6 +999,29 @@ public sealed partial class PlayerController : CharacterBody2D
         return hearts + 0.5f;
     }
 
+    /// <summary>
+    /// The boss grab (docs/05 §7): it enters you, and the bill is Sanity rather than health.
+    ///
+    /// Routed through Drain rather than TrySpend, and deliberately so. Drain is the
+    /// unconditional path — it can take you to zero, and reaching zero from ANY direction
+    /// latches the Ascension trigger through the one funnel in SanitySystem. A grab that
+    /// could not push you into Ascension would make the boss the one enemy in the game that
+    /// cannot produce the game's signature moment, which is exactly backwards.
+    ///
+    /// It grants damage i-frames but does NOT count as a hit taken: no heart was lost, and
+    /// counting it would spoil both the clean-room bonus and the M1 hit metrics.
+    /// </summary>
+    public void SufferGrab(float sanityCost)
+    {
+        _damageIFrames = 1.0f;
+        PendingHitStop = HitStop.PlayerDamaged;
+        AddTrauma(0.5f);
+
+        Sanity.Drain(sanityCost);
+        NoteSanitySpend();
+        Telemetry?.NoteSanitySpend(sanityCost);
+    }
+
     public void Heal(float hearts) => Hearts = Mathf.Min(MaxHearts, Hearts + hearts);
 
     public void ResetForTest(Vector2 position)

@@ -40,7 +40,59 @@ public sealed partial class Hud : Node2D
         DrawHearts(anchor);
         DrawCorruption(anchor + new Vector2(-24, 44));
         DrawWeapon(new Vector2(430, 300));
+        DrawBoss();
         DrawAscension();
+    }
+
+    /// <summary>Set by the room owner while a boss fight is running.</summary>
+    public Enemies.Boss? Boss { get; set; }
+
+    /// <summary>
+    /// The boss bar. Pinned to the top of the SCREEN, not drawn above the boss.
+    ///
+    /// The first version drew it in world space, and the very first capture of the fight
+    /// showed why that fails: the boss opens the fight above the player, so its bar sat
+    /// fifty pixels off the top of a 360-pixel viewport and was simply not there. A bar
+    /// that vanishes whenever the boss is near an edge is worse than no bar, because the
+    /// player learns to stop looking for it.
+    ///
+    /// docs/10 §3 keeps UI out of the play area during combat, and this is the exception
+    /// the rule is for: a boss bar is the fight's clock, and phases the player cannot see
+    /// coming cannot be paced against. The phase thresholds are ticked onto it for the
+    /// same reason.
+    /// </summary>
+    private void DrawBoss()
+    {
+        if (Boss is not { Alive: true } b) return;
+
+        var font = ThemeDB.FallbackFont;
+        // 340 wide rather than centred-and-as-wide-as-it-fits: the minimap occupies the
+        // top-right from x=500, and a bar that runs under it hides its own last 10% —
+        // which is precisely the part the player is watching at the end of a phase.
+        const float w = 340f, h = 7f;
+        var at = new Vector2(130f, 22f);
+
+        DrawRect(new Rect2(at - new Vector2(1, 1), new Vector2(w + 2, h + 2)), new Color(0, 0, 0, 0.72f));
+        DrawRect(new Rect2(at, new Vector2(w * b.HealthFraction, h)), b.PhaseTint);
+
+        foreach (float threshold in new[] { b.Data.Phase2At, b.Data.Phase3At })
+        {
+            DrawRect(new Rect2(at + new Vector2(w * threshold, -2f), new Vector2(1f, h + 4f)),
+                     new Color(1f, 1f, 1f, 0.5f));
+        }
+
+        DrawString(font, at + new Vector2(0f, -5f), b.Data.DisplayName,
+                   HorizontalAlignment.Left, -1, 10, new Color("E8E1D5"));
+        DrawString(font, at + new Vector2(w - 54f, -5f), $"phase {b.Phase}",
+                   HorizontalAlignment.Left, -1, 9, new Color("8B8578"));
+
+        // The transition is invulnerable, and a player who does not know that reads it as
+        // their damage having stopped working.
+        if (b.Invulnerable)
+        {
+            DrawString(font, at + new Vector2(w * 0.5f - 30f, h + 12f), "UNTOUCHABLE",
+                       HorizontalAlignment.Left, -1, 9, new Color("FFE066"));
+        }
     }
 
     /// <summary>

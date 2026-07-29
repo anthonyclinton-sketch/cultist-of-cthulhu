@@ -76,6 +76,26 @@ public sealed partial class EnemyManager : Node2D
     /// <summary>Weak-point hits this tick, for feedback and telemetry.</summary>
     public int WeakPointHitsThisTick { get; private set; }
 
+    /// <summary>
+    /// Latched when the boss dies, and consumed exactly once.
+    ///
+    /// Not a per-tick flag, for the reason <see cref="Boss.ConsumePhaseChange"/> spells
+    /// out: the death happens during hit resolution here, and Godot ticks the room owner
+    /// BEFORE this node, so a flag cleared at the top of each tick would be set and
+    /// destroyed within a frame without anyone seeing it.
+    /// </summary>
+    private bool _bossKilled;
+
+    public bool ConsumeBossKilled()
+    {
+        if (!_bossKilled) return false;
+        _bossKilled = false;
+        return true;
+    }
+
+    /// <summary>Player bullets that landed on the boss this tick, for hit feedback.</summary>
+    public int BossHitsThisTick { get; private set; }
+
     /// <summary>Mark every enemy overlapping a point — the dash-through (docs/02 §4).</summary>
     public int MarkOverlapping(Vector2 position, float radius)
     {
@@ -101,6 +121,18 @@ public sealed partial class EnemyManager : Node2D
         _rng = rng;
         _field = new FlowField(bounds);
     }
+
+    /// <summary>
+    /// The room's boss, if it has one.
+    ///
+    /// Registered and hit-resolved HERE rather than by the boss itself, because
+    /// <see cref="PublishTargets"/> clears the player bullet manager's target list every
+    /// tick — anything registering outside this method is erased before the next
+    /// simulation step. Routing it through the same path also means weak points, Marked
+    /// and the execute bonus apply to a boss for free, instead of via a second copy of the
+    /// damage pipeline that would drift.
+    /// </summary>
+    public Boss? Boss { get; set; }
 
     /// <summary>Solid geometry for pathing and for enemy bodies. Null in the fixed arena,
     /// where the only walls are the bounds.</summary>
@@ -136,6 +168,8 @@ public sealed partial class EnemyManager : Node2D
         _enemies.Clear();
         AliveCount = 0;
         KilledThisRoom = 0;
+        Boss = null;
+        _bossKilled = false;
     }
 
     public override void _PhysicsProcess(double delta)
@@ -144,6 +178,7 @@ public sealed partial class EnemyManager : Node2D
         PendingSanityReward = 0f;
         KillsThisTick = 0;
         WeakPointHitsThisTick = 0;
+        BossHitsThisTick = 0;
 
         // Repath ~10x/sec. The player moves ~1.5px per tick against a 24px cell, so a
         // field refreshed every 6 ticks is indistinguishable from one refreshed every tick.
@@ -217,6 +252,16 @@ public sealed partial class EnemyManager : Node2D
             int id = _playerBullets.GetHitId(h);
             float dmg = _playerBullets.GetHitDamage(h);
             Vector2 at = _playerBullets.GetHitPosition(h);
+
+            if (id == Boss.TargetId)
+            {
+                if (Boss is not null)
+                {
+                    if (Boss.TakeDamage(dmg)) _bossKilled = true;
+                    BossHitsThisTick++;
+                }
+                continue;
+            }
 
             for (int i = 0; i < _enemies.Count; i++)
             {
@@ -314,6 +359,12 @@ public sealed partial class EnemyManager : Node2D
             Enemy e = _enemies[i];
             if (e.Alive) _playerBullets.RegisterTarget(e.Id, e.Position, e.Data.BodyRadius);
         }
+
+        // The boss is registered even while invulnerable, so bullets still visibly stop on
+        // it during a phase transition. Registering it only when damageable would make
+        // shots pass through the boss for a second and a half, which reads as the fight
+        // having broken rather than as the boss being briefly untouchable.
+        if (Boss is { Alive: true }) _playerBullets.RegisterTarget(Boss.TargetId, Boss.Position, Boss.BodyRadius);
     }
 
     private void QueueFree_DeadEnemies()
@@ -406,6 +457,17 @@ public sealed partial class EnemyManager : Node2D
             if (e.Position.DistanceSquaredTo(playerPos) <= rr * rr && e.Data.ContactDamage > worst)
                 worst = e.Data.ContactDamage;
         }
+
+        // The boss has a body too. Excluded in phase 3, where the passenger has no body at
+        // all and its only means of touching you is the grab — contact damage there would
+        // quietly double-charge the player for the same collision, once in hearts and once
+        // in Sanity.
+        if (Boss is { Alive: true, Phase: < 3 } b && b.Data.ContactDamage > worst)
+        {
+            float rr = playerRadius + b.BodyRadius;
+            if (b.Position.DistanceSquaredTo(playerPos) <= rr * rr) worst = b.Data.ContactDamage;
+        }
+
         return worst;
     }
 }
