@@ -490,7 +490,8 @@ public sealed partial class FloorRunner : Node2D
         Check(_run.Telemetry.TotalRooms > 0,
               $"telemetry recorded the run ({_run.Telemetry.TotalRooms} room records)");
         Check(_restoreFailures == 0,
-              $"every floor restored the run intact ({_restoreFailures} discrepancies)");
+              $"the run survived every floor transition and room re-entry " +
+              $"({_restoreFailures} discrepancies)");
 
         // The whole reason for a RunState. If any of this resets at a floor boundary the
         // player silently loses their run, and nothing else in the project would notice.
@@ -1438,6 +1439,25 @@ public sealed partial class FloorRunner : Node2D
         _player.GlobalPosition = _geometry.RoomAnchorWorld(next);
         EnterRoom(next.NodeId);
         _autorunRoomIndex++;
+
+        // LEAVE AND COME BACK, and check the room still has its things.
+        //
+        // This is the shape of the bug it was written for: walk into a shop, see something
+        // you cannot afford, go and earn the gold, come back to an empty stall. Re-entry
+        // cleared the item list and then took the "already populated, nothing to do" branch,
+        // so every revisited room in the game was empty — and no gate noticed, because the
+        // autorun visits each room exactly once, which is the one access pattern that works.
+        int stock = _content.Items.Count;
+        if (stock > 0)
+        {
+            EnterRoom(next.NodeId);
+            if (_content.Items.Count != stock)
+            {
+                GD.PrintErr($" [FAIL] {next.Template.Id}: re-entering the room changed its " +
+                            $"contents ({stock} -> {_content.Items.Count})");
+                _restoreFailures++;
+            }
+        }
 
         // Take whatever the room offers, and inscribe it. Without this the harness finishes
         // every run with an empty Circle, and "the Circle carried down the stair" is an

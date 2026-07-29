@@ -35,8 +35,22 @@ public sealed partial class RoomContent : Node2D
     /// <summary>Floor index, for loot tiers and shop prices.</summary>
     public int FloorIndex = 1;
 
-    private readonly List<Interactable> _items = new();
-    private readonly HashSet<int> _populated = new();
+    /// <summary>
+    /// Every visited room's furniture, kept per room.
+    ///
+    /// This used to be one list, cleared on entry, with a set of already-populated room ids
+    /// guarding against re-rolling. The two together deleted the room: the list was
+    /// cleared, the guard returned early, and a shop you walked out of and came back to was
+    /// empty. Which is the single most likely thing a player does with a shop — see
+    /// something they cannot afford, go and earn the gold, come back.
+    ///
+    /// Storing per room fixes both halves at once. Nothing re-rolls, because a room that
+    /// has a list keeps it; and nothing vanishes, because leaving a room no longer destroys
+    /// what is in it. Purchases persist too, since the Interactables themselves carry the
+    /// Consumed flag.
+    /// </summary>
+    private readonly Dictionary<int, List<Interactable>> _byRoom = new();
+    private List<Interactable> _items = new();
     private int _nextGroup;
 
     /// <summary>The bench's reroll price rises within a floor (docs/08 §2.2).</summary>
@@ -56,8 +70,7 @@ public sealed partial class RoomContent : Node2D
     // ---------------------------------------------------------------- Population
 
     /// <summary>
-    /// Discard the previous room's furniture and lay out this one. Rooms are visited one
-    /// at a time.
+    /// Switch to this room's furniture, laying it out on first entry only.
     ///
     /// Takes an explicit <paramref name="centre"/> rather than deriving one from the
     /// interior rect, because a room's geometric centre may be inside an authored block.
@@ -66,14 +79,20 @@ public sealed partial class RoomContent : Node2D
     /// </summary>
     public void EnterRoom(PlacedRoom room, Rect2 interior, Vector2 centre, Rng roomRng)
     {
-        _items.Clear();
         _focus = null;
         _centre = centre;
 
-        // Populate once per room per run. Re-rolling on re-entry would turn a reward room
+        // Laid out once per room per floor. Re-rolling on re-entry would turn a reward room
         // into an infinite sigil dispenser, which is the most obvious possible exploit and
         // the one a player finds by accident within a minute of walking back through a door.
-        if (!_populated.Add(room.NodeId)) return;
+        if (_byRoom.TryGetValue(room.NodeId, out List<Interactable>? existing))
+        {
+            _items = existing;
+            return;
+        }
+
+        _items = new List<Interactable>();
+        _byRoom[room.NodeId] = _items;
 
         switch (room.Role)
         {
@@ -671,10 +690,18 @@ public sealed partial class RoomContent : Node2D
         // The prompt. Everything about the cost is on this line, because docs/08 §5's rule
         // — state the exact cost before commitment — is only kept if the player can read it
         // without opening anything.
+        // Affordability is in the COLOUR, not just in the refusal.
+        //
+        // The cost has always been on the prompt, but a player reading "125 gold" still has
+        // to remember what they are carrying to know whether that means anything — and the
+        // only feedback otherwise is pressing E and being told no. Red before the press.
+        bool affordable = _focus.GoldCost <= Player.Gold && _focus.KeyCost <= Player.Keys;
+
         Vector2 at = _focus.Position + new Vector2(0f, -26f);
         string prompt = _focus.Prompt();
         DrawString(font, at - new Vector2(prompt.Length * 2.4f, 0f), prompt,
-                   HorizontalAlignment.Left, -1, 10, Colors.White);
+                   HorizontalAlignment.Left, -1, 10,
+                   affordable ? Colors.White : new Color("B0122A"));
 
         if (_focus.Detail.Length > 0)
         {
@@ -699,8 +726,8 @@ public sealed partial class RoomContent : Node2D
     /// </summary>
     public void ResetForFloor()
     {
-        _items.Clear();
-        _populated.Clear();
+        _byRoom.Clear();
+        _items = new List<Interactable>();
         _focus = null;
         _keyChestPlaced = false;
         _rerollCost = 50;

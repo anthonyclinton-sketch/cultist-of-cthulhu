@@ -39,6 +39,7 @@ public sealed partial class Hud : Node2D
         DrawSanityRing(anchor);
         DrawHearts(anchor);
         DrawCorruption(anchor + new Vector2(-24, 44));
+        DrawCurrency(new Vector2(430, 274));
         DrawWeapon(new Vector2(430, 300));
         DrawBoss();
         DrawAscension();
@@ -209,6 +210,33 @@ public sealed partial class Hud : Node2D
             DrawCircle(origin + new Vector2(i * 7, 0), 2.5f, CorruptionColour);
     }
 
+    /// <summary>
+    /// Gold and keys, above the weapon (docs/10 §3).
+    ///
+    /// Absent until now, which made the entire economy invisible: the player could not see
+    /// what they had, so they could not tell whether walking back to the shop was worth the
+    /// trip, and a price in a prompt had nothing to be compared against. Two currencies with
+    /// no readout is not a minimal HUD, it is a missing one.
+    ///
+    /// Both are always shown, including at zero. Hiding a currency at zero is the version
+    /// where a player never learns keys exist until the first locked chest tells them off.
+    /// </summary>
+    private void DrawCurrency(Vector2 origin)
+    {
+        var font = ThemeDB.FallbackFont;
+        const float width = 180f;
+
+        // Two right-aligned columns rather than one padded string. Padding with spaces
+        // lines up only for the font it was eyeballed in.
+        DrawString(font, origin, $"{Player!.Keys} keys",
+                   HorizontalAlignment.Right, width, 10, KeyColour);
+        DrawString(font, origin, $"{Player.Gold} gold",
+                   HorizontalAlignment.Right, width - 54f, 10, GoldColour);
+    }
+
+    private static readonly Color GoldColour = new("F2C14E");
+    private static readonly Color KeyColour = new("E8E1D5");
+
     private void DrawWeapon(Vector2 origin)
     {
         if (Player!.Weapons.Count == 0) return;
@@ -248,7 +276,10 @@ public sealed partial class Hud : Node2D
         // (docs/10 §3).
         if (!w.Data.IsMelee && w.Data.SanityPerShot <= 0f)
         {
-            int mag = w.Data.MagazineSize;
+            // EFFECTIVE, not authored. Deep Etching adds 40% magazine and Gaunt's Bargain
+            // removes 40%; reading Data here would draw the pips the weapon had before it
+            // was etched, so the player could not see what they had just paid for.
+            int mag = w.EffectiveMagazineSize;
             float pipW = mag > 24 ? 3f : 5f;
             float gap = 2f;
             float totalW = mag * pipW + (mag - 1) * gap;
@@ -261,7 +292,7 @@ public sealed partial class Hud : Node2D
             }
 
             DrawString(font, origin + new Vector2(0, 30),
-                       $"{w.Reserve} rounds   ·   recite {w.Data.SanityCostToReload:F0} sanity",
+                       $"{w.Reserve} rounds   ·   recite {w.EffectiveReloadCost:F0} sanity",
                        HorizontalAlignment.Right, 180, 9, new Color(0.6f, 0.58f, 0.55f));
         }
         else if (w.Data.SanityPerShot > 0f)
