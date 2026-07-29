@@ -37,21 +37,52 @@ public sealed class Enemy
     private Vector2 _repositionTarget;
     private float _weakPointAngle;
 
-    public Enemy(int id, EnemyData data, Vector2 position, BulletManager enemyBullets, Rng rng)
+    /// <summary>
+    /// docs/02 §7.2 — Awakened, at Corruption 3 and above (and at 10 regardless).
+    ///
+    /// The health bump is small on purpose; the real change is the SECOND ATTACK PATTERN.
+    /// Fodder that stops dying quickly starves the Sanity economy (docs/05 §2), so making
+    /// Corruption bite by inflating health would have punished the player twice — once with
+    /// tougher enemies and again with less Sanity to fight them with.
+    /// </summary>
+    public bool Awakened { get; }
+
+    private readonly BulletManager _bullets;
+
+    public Enemy(int id, EnemyData data, Vector2 position, BulletManager enemyBullets, Rng rng,
+                 bool awakened = false)
     {
         Id = id;
         Data = data;
         Position = position;
-        Health = data.MaxHealth;
+        Awakened = awakened && data.AwakenedAttack is not null;
+        Health = data.MaxHealth * (awakened ? Tune.AwakenedHealthMultiplier : 1f);
         _rng = rng;
+        _bullets = enemyBullets;
         _attackCooldown = rng.Range(0.2f, data.AttackCooldown);
 
-        if (data.PrimaryAttack is not null) _pattern.Configure(data.PrimaryAttack, enemyBullets, rng);
+        if (FirstAttack is not null) _pattern.Configure(FirstAttack, enemyBullets, rng);
     }
+
+    /// <summary>Max health as this instance was actually built, so health bars and the
+    /// execute threshold read the Awakened value rather than the authored one.</summary>
+    public float MaxHealth => Data.MaxHealth * (Awakened ? Tune.AwakenedHealthMultiplier : 1f);
+
+    /// <summary>
+    /// Whichever pattern this enemy opens with.
+    ///
+    /// Not always the primary: the Cellar Ghoul is a pure melee Rusher with no primary
+    /// attack at all, and its Awakened pattern is the first ranged attack it has ever had.
+    /// Assuming a primary here would have left the one enemy the upgrade changes most
+    /// unable to use it.
+    /// </summary>
+    private PatternData? FirstAttack => Data.PrimaryAttack ?? (Awakened ? Data.AwakenedAttack : null);
+
+    private bool HasAnyAttack => Data.PrimaryAttack is not null || (Awakened && Data.AwakenedAttack is not null);
 
     /// <summary>Returns true if it wants an attack token this tick.</summary>
     public bool WantsToAttack =>
-        Alive && Data.PrimaryAttack is not null && _attackCooldown <= 0f
+        Alive && HasAnyAttack && _attackCooldown <= 0f
         && State is EnemyState.Approach or EnemyState.Idle;
 
     public void GrantToken() { HoldsAttackToken = true; }
@@ -197,6 +228,7 @@ public sealed class Enemy
                 MoveTowardPreferredRange(dt, distToPlayer, field);
                 if (HoldsAttackToken && _attackCooldown <= 0f)
                 {
+                    SelectNextPattern();
                     _pattern.Fire();
                     Transition(EnemyState.Telegraph);
                 }
@@ -254,6 +286,26 @@ public sealed class Enemy
 
         Move(dt);
     }
+
+    /// <summary>
+    /// Alternate primary and Awakened, strictly.
+    ///
+    /// Alternating rather than rolling per volley on purpose. docs/05 §1's readability
+    /// contract is the whole reason the pattern vocabulary is small and telegraphed — a
+    /// player learns an enemy by learning what it does next, and a coin flip between two
+    /// shapes is not learnable, it is just noisier. Alternation means an Awakened enemy has
+    /// a RHYTHM the player can read and punish, which is what makes the upgrade a change in
+    /// difficulty rather than a change in variance.
+    /// </summary>
+    private void SelectNextPattern()
+    {
+        if (!Awakened || Data.AwakenedAttack is null || Data.PrimaryAttack is null) return;
+
+        _useAwakenedNext = !_useAwakenedNext;
+        _pattern.Configure(_useAwakenedNext ? Data.AwakenedAttack : Data.PrimaryAttack, _bullets, _rng);
+    }
+
+    private bool _useAwakenedNext;
 
     private void MoveTowardPreferredRange(float dt, float dist, FlowField field)
     {

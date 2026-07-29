@@ -38,7 +38,9 @@ public sealed partial class Hud : Node2D
         Vector2 anchor = new(70, 300);
         DrawSanityRing(anchor);
         DrawHearts(anchor);
-        DrawCorruption(anchor + new Vector2(-24, 44));
+        // Raised 6px from the original placement: the threshold label sits below the pips and
+        // was landing at y=357 in a 360-tall viewport.
+        DrawCorruption(anchor + new Vector2(-24, 38));
         DrawCurrency(new Vector2(430, 274));
         DrawWeapon(new Vector2(430, 300));
         DrawBoss();
@@ -201,13 +203,43 @@ public sealed partial class Hud : Node2D
         }
     }
 
+    /// <summary>
+    /// Corruption pips: small, permanent, ominous, and gold at 10 (docs/10 §3).
+    ///
+    /// This was a placeholder that drew ZERO pips, with a comment deferring it to M3 — while
+    /// Corruption was accruing from Banish, Ascension, the reward room's third option and
+    /// every Forbidden inscription. The player was making one-way, permanent, irreversible
+    /// decisions against a number they could not see.
+    ///
+    /// Partial pips are drawn, because Banish grants +0.25 and a stat that visibly does
+    /// nothing three times out of four teaches the player it is not moving.
+    /// </summary>
     private void DrawCorruption(Vector2 origin)
     {
-        // Small, permanent, ominous (docs/10 §3). Placeholder at zero until the Corruption
-        // system lands at M3.
-        const int pips = 0;
-        for (int i = 0; i < pips; i++)
-            DrawCircle(origin + new Vector2(i * 7, 0), 2.5f, CorruptionColour);
+        float c = Player!.Corruption;
+        int full = Mathf.FloorToInt(c);
+        float part = c - full;
+
+        bool yellow = Core.CorruptionTiers.YellowSign(c);
+        Color pip = yellow ? new Color("F2C14E") : CorruptionColour;
+
+        // Ten slots, because 10 is the cap and a fixed row shows how far there is left to go.
+        for (int i = 0; i < 10; i++)
+        {
+            Vector2 at = origin + new Vector2(i * 7f, 0f);
+            if (i < full) DrawCircle(at, 2.5f, pip);
+            else if (i == full && part > 0f) DrawCircle(at, 2.5f * part, pip);
+            else DrawCircle(at, 1f, new Color(0.22f, 0.19f, 0.20f));
+        }
+
+        // The threshold, in words. A row of pips says how much; it does not say what the
+        // next one costs, and the thresholds are where the whole stat actually bites.
+        if (c > 0f)
+        {
+            DrawString(ThemeDB.FallbackFont, origin + new Vector2(0f, 13f),
+                       Core.CorruptionTiers.Describe(c), HorizontalAlignment.Left, -1, 8,
+                       yellow ? pip : new Color(0.55f, 0.45f, 0.47f));
+        }
     }
 
     /// <summary>

@@ -187,11 +187,14 @@ public sealed partial class RoomContent : Node2D
             });
         }
 
-        // --- The Inscription Bench, 3 offers.
-        List<InscriptionData> offers = InscriptionPool.DrawOffers(FloorIndex, rng);
+        // --- The Inscription Bench. Three offers, four at Corruption 3+ (docs/02 §7.2).
+        // The one threshold effect that is purely a gift, and it belongs at the shop because
+        // that is where a Corruption build cashes out.
+        int benchSlots = 3 + CorruptionTiers.ExtraBenchOffers(Player.Corruption);
+        List<InscriptionData> offers = InscriptionPool.DrawOffers(FloorIndex, rng, benchSlots);
         for (int i = 0; i < offers.Count; i++)
         {
-            _items.Add(BenchOffer(offers[i], c + new Vector2(-120f + i * 80f, 10f), priceMult));
+            _items.Add(BenchOffer(offers[i], c + new Vector2(-120f + i * 68f, 10f), priceMult));
         }
 
         _items.Add(new Interactable

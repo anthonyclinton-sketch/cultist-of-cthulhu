@@ -236,6 +236,27 @@ public static class Tune
     public const float AscensionAttackDamage = 14f;
     public const int AscensionAttackProjectiles = 5;
 
+    // ------------------------------------------------------------ Corruption (docs/02 §7)
+    //
+    // The thresholds. Read only through Core.CorruptionTiers, which is the one place that
+    // knows what each of them does — these are the boundaries, not the effects.
+    //
+    // Corruption is the run-long risk stat and docs/02 §7.3 calls it "the game's real
+    // difficulty selector". It only goes up, and every source of it is voluntary or clearly
+    // telegraphed, so the numbers below are the price list for choices the player makes
+    // deliberately. They should be tuned only alongside the payouts in docs/08 §3.
+
+    public const float CorruptionFirst = 1f;        // loot bump, Corrupted Doors (M3)
+    public const float CorruptionAwakened = 3f;     // Awakened enemies, extra shop stock
+    public const float CorruptionHound = 5f;        // the Hound of Tindalos (M3)
+    public const float CorruptionSwarm = 7f;        // +1 enemy per room
+    public const float CorruptionYellowSign = 10f;  // the palette turns; everything Awakened
+
+    /// <summary>docs/02 §7.2 — Awakened enemies carry +15% health. Deliberately small: the
+    /// threat comes from the second attack pattern, not from bloated health bars, because
+    /// fodder that stops dying fast starves the Sanity economy (docs/05 §2).</summary>
+    public const float AwakenedHealthMultiplier = 1.15f;
+
     // ---------------------------------------------------------------- Bullets (docs/09 §3)
 
     public const int MaxBullets = 4096;                  // hard array capacity

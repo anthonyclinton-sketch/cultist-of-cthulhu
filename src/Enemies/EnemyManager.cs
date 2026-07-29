@@ -144,6 +144,14 @@ public sealed partial class EnemyManager : Node2D
         _field.ApplyMask(mask);
     }
 
+    /// <summary>
+    /// Set from the player's Corruption each time a room populates (docs/02 §7.2). Read at
+    /// SPAWN rather than per tick, so an enemy's toughness cannot change under the player
+    /// mid-fight — Banishing four times during a room would otherwise awaken the things
+    /// already fighting them.
+    /// </summary>
+    public bool SpawnAwakened { get; set; }
+
     public Enemy Spawn(EnemyData data, Vector2 position)
     {
         // Callers pick spawn points by area, which does not know about geometry. An enemy
@@ -151,7 +159,7 @@ public sealed partial class EnemyManager : Node2D
         // that keeps it overlapping — so it stands there until shot.
         if (Walls is not null) position = Walls.NearestOpen(position, data.BodyRadius);
 
-        var e = new Enemy(_nextId++, data, position, _enemyBullets, _rng);
+        var e = new Enemy(_nextId++, data, position, _enemyBullets, _rng, SpawnAwakened);
         _enemies.Add(e);
 
         // Updated HERE and not only in the tick. Godot ticks parents before children, so
@@ -290,7 +298,9 @@ public sealed partial class EnemyManager : Node2D
     private float ExecuteMultiplier(Enemy e)
     {
         if (ExecuteDamageBonus <= 0f) return 1f;
-        return e.Health <= e.Data.MaxHealth * ExecuteThreshold ? 1f + ExecuteDamageBonus : 1f;
+        // Against the instance's OWN maximum, not the authored one — an Awakened enemy has
+        // more health, and reading Data here would make the execute window fire early on it.
+        return e.Health <= e.MaxHealth * ExecuteThreshold ? 1f + ExecuteDamageBonus : 1f;
     }
 
     private void RecordKill(Enemy e)

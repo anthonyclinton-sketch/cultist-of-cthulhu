@@ -109,6 +109,10 @@ Write-Host "`n### AUTORUN — THREE FLOORS (descent carries the run) ###"
 & $godot --headless --path $root res://scenes/debug/FloorRunner.tscn --seed $Seed --autorun --floors=3 --quit-after 60000
 if ($LASTEXITCODE -ne 0) { $failed += "autorun (3 floors)" }
 
+Write-Host "`n### CORRUPTION ###"
+& $godot --headless --path $root res://scenes/debug/CorruptionTest.tscn
+if ($LASTEXITCODE -ne 0) { $failed += "corruption" }
+
 Write-Host "`n### BOSS 1 ###"
 & $godot --headless --path $root res://scenes/debug/BossTest.tscn
 if ($LASTEXITCODE -ne 0) { $failed += "boss" }

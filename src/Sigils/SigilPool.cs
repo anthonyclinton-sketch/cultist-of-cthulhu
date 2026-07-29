@@ -87,10 +87,10 @@ public static class SigilPool
     /// <summary>
     /// Roll a tier for a floor, then let Corruption push it up.
     ///
-    /// docs/08 §3: Corruption shifts a roll up one tier with probability 20/45/70% at
-    /// thresholds 1/3/5. That is the cleanest statement of the game's central trade in the
-    /// whole economy — the loot gets better because you are getting worse — so it lives
-    /// here rather than being folded into the base weights, where it would be invisible.
+    /// docs/08 §3: Corruption shifts a roll up one tier at a chance that rises with the
+    /// threshold reached. That is the cleanest statement of the game's central trade in the
+    /// whole economy — the loot gets better because you are getting worse — so the shift is
+    /// applied here rather than folded into the base weights, where it would be invisible.
     /// </summary>
     public static SigilTier RollTier(int floor, float corruption, Rng rng)
     {
@@ -107,7 +107,10 @@ public static class SigilPool
             break;
         }
 
-        float shift = corruption >= 5f ? 0.70f : corruption >= 3f ? 0.45f : corruption >= 1f ? 0.20f : 0f;
+        // The bump chance lives with every other Corruption threshold rather than here.
+        // It used to be a second copy of the 20/45/70 table, which is one tuning pass away
+        // from disagreeing with the costs it is supposed to be paying for.
+        float shift = CorruptionTiers.LootTierBumpChance(corruption);
         if (shift > 0f && rng.NextFloat() < shift && tier != SigilTier.S) tier++;
 
         return tier;

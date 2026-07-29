@@ -64,6 +64,13 @@ jobs:
       - name: Banish
         run: ~/godot/bin/Godot_v${GODOT_VERSION}_mono_linux.x86_64 --headless --path . res://scenes/debug/BanishTest.tscn
 
+      # Corruption is the design's difficulty selector, and for two milestones it only ever
+      # made the game EASIER — it accrued from four sources and the only thing reading it was
+      # the loot-tier bump. The assertions are directional: as it rises, something must get
+      # worse, at every threshold docs/02 §7.2 names.
+      - name: Corruption
+        run: ~/godot/bin/Godot_v${GODOT_VERSION}_mono_linux.x86_64 --headless --path . res://scenes/debug/CorruptionTest.tscn
+
       # A whole run, played headlessly: every room cleared, the boss killed, the floor
       # completed, the build carried down a stair, the run ended. No other gate here can
       # reach a boss at all — they leave the player standing in the entrance for 600 frames.

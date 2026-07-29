@@ -77,6 +77,7 @@ public sealed partial class FloorRunner : Node2D
         ParseScreenshotArgs();
 
         BuildRunScopedNodes();
+        if (_startingCorruption > 0f) _run.Corruption = _startingCorruption;
         BeginFloor();
     }
 
@@ -619,6 +620,17 @@ public sealed partial class FloorRunner : Node2D
         _minimap.Revealed = _content.RevealFloor;
         _minimap.ShowEnemies = _encounterActive;
 
+        // Corruption 10. Polled rather than set on a threshold crossing, because Corruption
+        // can be reduced later (docs/02 §7.3) and a one-way latch would leave the floor gold
+        // after the player had paid to come back from it.
+        bool yellow = CorruptionTiers.YellowSign(_player.Corruption);
+        if (yellow != _floorTiles.YellowSign)
+        {
+            _floorTiles.YellowSign = yellow;
+            _floorTiles.QueueRedraw();
+            if (yellow) GD.Print("[Corruption] THE YELLOW SIGN. The floor has noticed.");
+        }
+
         QueueRedraw();
         HandleDebugKeys();
         TickScreenshot();
@@ -801,6 +813,9 @@ public sealed partial class FloorRunner : Node2D
         _boss.SetWalls(_enemies.Walls);
         _enemies.Boss = _boss;
 
+        // The boss's own adds obey the Corruption thresholds like anything else that spawns.
+        _enemies.SpawnAwakened = CorruptionTiers.EnemiesAwakened(_player.Corruption);
+
         _bossRoom = room.NodeId;
         _hud.Boss = _boss;
         _encounterActive = true;
@@ -933,6 +948,12 @@ public sealed partial class FloorRunner : Node2D
 
         Rect2 area = _geometry.RoomRectWorld(room).Grow(-32f);
 
+        // docs/02 §7.2 — Corruption 3+ awakens what spawns, 7+ adds one more of it. Read
+        // once here, before anything spawns, so a Banish mid-room cannot change the
+        // composition of the fight the player is already in.
+        _enemies.SpawnAwakened = CorruptionTiers.EnemiesAwakened(_player.Corruption);
+        int extra = CorruptionTiers.ExtraEnemiesPerRoom(_player.Corruption);
+
         while (spent < budget && guard++ < 64)
         {
             EnemyData pick = PickEnemy(fodderSpent < fodderFloor);
@@ -947,6 +968,18 @@ public sealed partial class FloorRunner : Node2D
             if (pick.Role == EnemyRole.Fodder) fodderSpent += pick.DreadCost;
         }
 
+        // Corruption 7+ — one more than the budget bought, ON TOP of the budget rather than
+        // inside it. Folding it into the budget would let it displace a fodder pick and trip
+        // the 35% fodder floor, which would starve the Sanity economy exactly when the player
+        // has the most Corruption and needs it most.
+        for (int i = 0; i < extra; i++)
+        {
+            var at = new Vector2(
+                _rng.Range(area.Position.X, area.Position.X + area.Size.X),
+                _rng.Range(area.Position.Y, area.Position.Y + area.Size.Y));
+            _enemies.Spawn(PickEnemy(needFodder: false), at);
+        }
+
         if (_enemies.AliveCount == 0) { _clearedRooms.Add(room.NodeId); return; }
 
         _encounterActive = true;
@@ -955,7 +988,9 @@ public sealed partial class FloorRunner : Node2D
         _run.Telemetry.BeginRoom(_roomsCleared + 1, _player.Sanity);
 
         GD.Print($"[Room {room.Template.Id}] {room.Role}  budget {budget:F0}  " +
-                 $"enemies {_enemies.AliveCount}  ceiling {_player.Sanity.LucidCeiling:F0}");
+                 $"enemies {_enemies.AliveCount}  ceiling {_player.Sanity.LucidCeiling:F0}" +
+                 (_enemies.SpawnAwakened ? "  AWAKENED" : "") +
+                 (extra > 0 ? $"  +{extra} (corruption)" : ""));
     }
 
     private EnemyData PickEnemy(bool needFodder)
@@ -1065,6 +1100,7 @@ public sealed partial class FloorRunner : Node2D
     private bool _combatDemo;
     private string _roomDemo = "";
     private bool _reverieDemo;
+    private float _startingCorruption;
     private int _frameCount;
 
     private void ParseScreenshotArgs()
@@ -1079,6 +1115,11 @@ public sealed partial class FloorRunner : Node2D
             else if (arg.StartsWith("--room-demo=")) _roomDemo = arg["--room-demo=".Length..];
             else if (arg == "--reverie-demo") _reverieDemo = true;
             else if (arg == "--autorun") _autorun = true;
+            // Start the run already Corrupted, so the thresholds can be seen without
+            // Banishing forty times to reach them.
+            else if (arg.StartsWith("--corruption=") &&
+                     float.TryParse(arg["--corruption=".Length..], out float c))
+                _startingCorruption = c;
         }
 
         // An autorun capture is of the SUMMARY, which arrives whenever the run happens to
@@ -1318,6 +1359,17 @@ public sealed partial class FloorRunner : Node2D
                        : e.Data.Tint;
             DrawCircle(e.Position, e.Data.BodyRadius, body);
 
+            // AWAKENED (docs/02 §7.2). A ring, because the readability contract in docs/05
+            // §1 means an enemy that behaves differently must LOOK different — an Awakened
+            // acolyte has a second attack and more health, and a player who cannot tell it
+            // apart from a normal one is being asked to learn a rhythm they cannot see the
+            // cause of. Not a tint: tint is already the enemy's identity.
+            if (e.Awakened)
+            {
+                DrawArc(e.Position, e.Data.BodyRadius + 3f, 0, Mathf.Tau, 20,
+                        new Color("B0122A") with { A = 0.85f }, 1.5f);
+            }
+
             if (_player.Sanity.WeakPointsVisible)
                 DrawCircle(e.WeakPointPosition, e.WeakPointRadius, new Color(1f, 0.9f, 0.35f, 0.85f));
 
@@ -1325,7 +1377,7 @@ public sealed partial class FloorRunner : Node2D
                 DrawArc(e.Position, e.Data.BodyRadius + 4f + e.TelegraphProgress * 8f,
                         0, Mathf.Tau * e.TelegraphProgress, 20, new Color("FF5555"), 2f);
 
-            float hp = e.Health / e.Data.MaxHealth;
+            float hp = e.Health / e.MaxHealth;
             if (hp < 1f)
                 DrawRect(new Rect2(e.Position.X - 10, e.Position.Y - e.Data.BodyRadius - 7, 20 * hp, 2),
                          new Color("D64545"));
@@ -1527,6 +1579,21 @@ public sealed partial class FloorTiles : Node2D
     private static readonly Color WallColour = new("2E333D");
     private static readonly Color WallEdge = new("3D4450");
 
+    /// <summary>
+    /// docs/02 §7.2 — the Yellow Sign at Corruption 10. The floor's palette turns sickly gold.
+    ///
+    /// The FLOOR only. Enemy projectiles stay in the cool half of the palette no matter what,
+    /// because docs/10 §1.3 R1 is not negotiable: a warm bullet reads as the player's and
+    /// will get walked into. Corruption is allowed to change how the world looks; it is not
+    /// allowed to make incoming fire ambiguous.
+    /// </summary>
+    public bool YellowSign;
+
+    private static readonly Color YellowFloor = new("2A2517");
+    private static readonly Color YellowGrid = new("3A3320");
+    private static readonly Color YellowWall = new("4A3F1E");
+    private static readonly Color YellowEdge = new("6B5A28");
+
     public override void _Ready()
     {
         foreach (Rect2 r in Geometry.BuildFloorRects()) _rects.Add(r);
@@ -1539,16 +1606,21 @@ public sealed partial class FloorTiles : Node2D
 
     public override void _Draw()
     {
+        Color floor = YellowSign ? YellowFloor : FloorColour;
+        Color grid = YellowSign ? YellowGrid : GridColour;
+        Color wall = YellowSign ? YellowWall : WallColour;
+        Color edge = YellowSign ? YellowEdge : WallEdge;
+
         foreach (Rect2 r in _rects)
         {
-            DrawRect(r, FloorColour);
-            DrawRect(r, GridColour, filled: false, width: 1f);
+            DrawRect(r, floor);
+            DrawRect(r, grid, filled: false, width: 1f);
         }
 
         foreach (Rect2 r in _walls)
         {
-            DrawRect(r, WallColour);
-            DrawRect(new Rect2(r.Position, new Vector2(r.Size.X, 2f)), WallEdge);
+            DrawRect(r, wall);
+            DrawRect(new Rect2(r.Position, new Vector2(r.Size.X, 2f)), edge);
         }
     }
 }
