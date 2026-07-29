@@ -4,10 +4,25 @@ using Godot;
 
 namespace CultistOfCthulhu.Rooms;
 
-/// <summary>A door punched between two connected rooms. Sealed during encounters.</summary>
+/// <summary>
+/// An opening in one room's wall ring. Sealed while that room is contested.
+///
+/// Belongs to ONE room rather than to a pair, and that is the fix for a real bug: the
+/// previous version recorded a doorway only where <see cref="FloorGeometry.TryPunchDoor"/>
+/// cut through two flush rooms, and corridors recorded nothing at all. Rooms joined by a
+/// corridor therefore had openings that no code knew about and no seal could ever cover, so
+/// roughly half the combat rooms on a floor could be walked straight out of mid-fight.
+///
+/// Deriving one-sided openings from the finished grid instead means "seal this room" is
+/// simply "close every hole in its own ring", which needs no knowledge of what is on the
+/// other side and cannot miss a case.
+/// </summary>
 public sealed class Doorway
 {
-    public int RoomA, RoomB;
+    /// <summary>Unique within the floor. Keys the seal table.</summary>
+    public int Index;
+    /// <summary>The room whose wall ring this opening is in.</summary>
+    public int Room;
     public Rect2 WorldRect;      // pixels
     public bool Horizontal;      // true if the passage runs east-west
 }
@@ -48,7 +63,104 @@ public sealed class FloorGeometry
 
         foreach (PlacedRoom r in floor.Rooms) CarveRoom(r);
         CarveConnections(floor);
+        FindDoorways(floor);
     }
+
+    /// <summary>
+    /// Find every opening in every room's wall ring, from the FINISHED grid.
+    ///
+    /// This is the class's own stated principle finally applied to doors. The comment above
+    /// says rooms, corridors and doors all write into one grid so that the collision shell
+    /// can be derived once and "every case is handled by the same code instead of three
+    /// special cases that disagree at the seams" — and then doorways were collected as a
+    /// special case by the flush-room path only, which is exactly the disagreement it warns
+    /// about. Corridor mouths were invisible.
+    ///
+    /// Openings are grouped by 4-connectivity within the ring rather than scanned side by
+    /// side, so a corridor that clips a corner produces one doorway instead of two halves or
+    /// a missed tile.
+    /// </summary>
+    private void FindDoorways(GeneratedFloor floor)
+    {
+        Doors.Clear();
+        var visited = new HashSet<Vector2I>();
+
+        foreach (PlacedRoom r in floor.Rooms)
+        {
+            var ring = new HashSet<Vector2I>();
+            Rect2I b = r.Bounds;
+
+            // Ordered as well as set-membered. The set answers "is this tile part of the
+            // ring" during the flood; the LIST fixes the order doorways are discovered in,
+            // and therefore the indices they get. Walking the set instead would key the
+            // seal table off HashSet iteration order, which is not a contract — and this
+            // project treats reproducibility as one (docs/09 §4).
+            var ordered = new List<Vector2I>();
+
+            for (int x = b.Position.X; x < b.Position.X + b.Size.X; x++)
+            {
+                Add(ring, ordered, new Vector2I(x, b.Position.Y));
+                Add(ring, ordered, new Vector2I(x, b.Position.Y + b.Size.Y - 1));
+            }
+            for (int y = b.Position.Y; y < b.Position.Y + b.Size.Y; y++)
+            {
+                Add(ring, ordered, new Vector2I(b.Position.X, y));
+                Add(ring, ordered, new Vector2I(b.Position.X + b.Size.X - 1, y));
+            }
+
+            visited.Clear();
+            foreach (Vector2I tile in ordered)
+            {
+                if (!visited.Add(tile)) continue;
+
+                // Flood this run of open ring tiles and take its bounding box.
+                var run = new List<Vector2I> { tile };
+                var queue = new Queue<Vector2I>();
+                queue.Enqueue(tile);
+
+                while (queue.Count > 0)
+                {
+                    Vector2I c = queue.Dequeue();
+                    foreach (Vector2I d in Neighbours)
+                    {
+                        var n = new Vector2I(c.X + d.X, c.Y + d.Y);
+                        if (!ring.Contains(n) || !visited.Add(n)) continue;
+                        run.Add(n);
+                        queue.Enqueue(n);
+                    }
+                }
+
+                int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
+                foreach (Vector2I c in run)
+                {
+                    minX = Mathf.Min(minX, c.X); maxX = Mathf.Max(maxX, c.X);
+                    minY = Mathf.Min(minY, c.Y); maxY = Mathf.Max(maxY, c.Y);
+                }
+
+                int w = maxX - minX + 1;
+                int h = maxY - minY + 1;
+
+                Doors.Add(new Doorway
+                {
+                    Index = Doors.Count,
+                    Room = r.NodeId,
+                    // Taller than wide means the passage runs east-west through it.
+                    Horizontal = h > w,
+                    WorldRect = new Rect2(minX * Tile, minY * Tile, w * Tile, h * Tile),
+                });
+            }
+        }
+    }
+
+    /// <summary>Add a ring tile to the candidate set, but only if it is actually open.
+    /// Corners appear on two sides, so the set membership also dedupes the list.</summary>
+    private void Add(HashSet<Vector2I> ring, List<Vector2I> ordered, Vector2I world)
+    {
+        if (IsWalkableWorldTile(world) && ring.Add(world)) ordered.Add(world);
+    }
+
+    private static readonly Vector2I[] Neighbours =
+        { new(1, 0), new(-1, 0), new(0, 1), new(0, -1) };
 
     private Vector2I ToLocal(Vector2I world) => world - _origin;
 
@@ -172,14 +284,28 @@ public sealed class FloorGeometry
                 var key = a.NodeId < nb ? (a.NodeId, nb) : (nb, a.NodeId);
                 if (!done.Add(key)) continue;
 
-                if (!TryPunchDoor(a, b)) CarveCorridor(a, b);
+                if (TryPunchDoor(a, b)) PunchedDoors++;
+                else { CarveCorridor(a, b); Corridors++; }
             }
         }
     }
 
     /// <summary>
+    /// How this floor is joined together. Reported because the ratio was the shape of a real
+    /// bug: doorways used to be recorded only by the flush-room path, so the corridor count
+    /// was exactly the number of room connections that could never be sealed.
+    /// </summary>
+    public int PunchedDoors { get; private set; }
+    public int Corridors { get; private set; }
+
+    /// <summary>
     /// Open a passage where two rooms sit flush. Returns false when they do not touch, in
     /// which case the caller runs a corridor instead.
+    ///
+    /// Only CARVES. It no longer records a Doorway — <see cref="FindDoorways"/> derives
+    /// those from the finished grid, so this method and <see cref="CarveCorridor"/> both
+    /// get their openings sealed by the same mechanism instead of one of them being
+    /// forgotten.
     /// </summary>
     private bool TryPunchDoor(PlacedRoom a, PlacedRoom b)
     {
@@ -202,12 +328,6 @@ public sealed class FloorGeometry
                 for (int x = edgeX - 1; x <= edgeX; x++)
                     Set(ToLocal(new Vector2I(x, y)));
 
-            Doors.Add(new Doorway
-            {
-                RoomA = a.NodeId, RoomB = b.NodeId, Horizontal = true,
-                WorldRect = new Rect2((edgeX - 1) * Tile, (cy - DoorHalfWidth) * Tile,
-                                      2 * Tile, (2 * DoorHalfWidth + 1) * Tile),
-            });
             return true;
         }
 
@@ -227,12 +347,6 @@ public sealed class FloorGeometry
                 for (int y = edgeY - 1; y <= edgeY; y++)
                     Set(ToLocal(new Vector2I(x, y)));
 
-            Doors.Add(new Doorway
-            {
-                RoomA = a.NodeId, RoomB = b.NodeId, Horizontal = false,
-                WorldRect = new Rect2((cx - DoorHalfWidth) * Tile, (edgeY - 1) * Tile,
-                                      (2 * DoorHalfWidth + 1) * Tile, 2 * Tile),
-            });
             return true;
         }
 

@@ -70,6 +70,7 @@ public sealed partial class WallCollisionTest : Node2D
         GD.Print($"\n--- seed {seedText}: {floor.Rooms.Count} rooms, flow '{floor.FlowId}' ---");
 
         TestRoomCentresAreOpen(floor, geometry, mask, seedText);
+        TestEveryOpeningIsSealable(floor, geometry, mask, seedText);
         TestBulletsStopAtWalls(floor, geometry, mask, seedText);
         TestFastBulletsDoNotTunnel(floor, geometry, mask, seedText);
         TestEnemiesStayOutOfWalls(floor, geometry, mask, seedText);
@@ -115,6 +116,65 @@ public sealed partial class WallCollisionTest : Node2D
         Check(solid == 0, $"seed {seedText}: every room offers a standable anchor ({solid} solid)");
         Check(cramped == 0,
               $"seed {seedText}: no room is more than 40% obstacle ({cramped} over budget)");
+    }
+
+    /// <summary>
+    /// Every hole in a room's wall ring must be covered by one of that room's doorways.
+    ///
+    /// This is what makes a room a room. Doors seal while a fight is running, and a seal can
+    /// only cover an opening the geometry knows about — so an unrecorded opening is a combat
+    /// room the player walks straight out of, taking the encounter's whole premise with it.
+    ///
+    /// It was a real bug and it was widespread: doorways used to be recorded only where two
+    /// flush rooms had a passage punched between them, and corridors recorded nothing at
+    /// all, so every corridor-connected room on every floor had an exit no seal could ever
+    /// close. No gate noticed, because the door logic was self-consistent — it sealed
+    /// everything it knew about, and simply did not know about half of it.
+    /// </summary>
+    private void TestEveryOpeningIsSealable(GeneratedFloor floor, FloorGeometry geometry,
+                                            TileMask mask, string seedText)
+    {
+        int uncovered = 0;
+        int openings = 0;
+
+        foreach (PlacedRoom r in floor.Rooms)
+        {
+            Rect2I b = r.Bounds;
+
+            for (int y = b.Position.Y; y < b.Position.Y + b.Size.Y; y++)
+            {
+                for (int x = b.Position.X; x < b.Position.X + b.Size.X; x++)
+                {
+                    bool onRing = x == b.Position.X || y == b.Position.Y
+                                  || x == b.Position.X + b.Size.X - 1
+                                  || y == b.Position.Y + b.Size.Y - 1;
+                    if (!onRing) continue;
+
+                    // Test the tile's CENTRE: a doorway rect covers whole tiles, and a
+                    // corner-point test would land on the boundary and go either way.
+                    var centre = new Vector2((x + 0.5f) * FloorGeometry.Tile,
+                                             (y + 0.5f) * FloorGeometry.Tile);
+                    if (mask.IsSolid(centre.X, centre.Y)) continue;
+
+                    openings++;
+
+                    bool covered = false;
+                    foreach (Doorway d in geometry.Doors)
+                    {
+                        if (d.Room != r.NodeId) continue;
+                        if (!d.WorldRect.HasPoint(centre)) continue;
+                        covered = true;
+                        break;
+                    }
+                    if (!covered) uncovered++;
+                }
+            }
+        }
+
+        Check(openings > 0, $"seed {seedText}: rooms have openings at all ({openings} ring tiles)");
+        Check(uncovered == 0,
+              $"seed {seedText}: every opening is covered by a sealable doorway " +
+              $"({uncovered} of {openings} ring tiles unsealable)");
     }
 
     /// <summary>

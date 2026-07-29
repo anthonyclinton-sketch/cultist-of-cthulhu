@@ -291,7 +291,9 @@ public sealed partial class FloorRunner : Node2D
         EnterRoom(entrance.NodeId);
 
         GD.Print($"[FloorRunner] floor {_run.FloorIndex}/{_run.FinalFloor} — " +
-                 $"{_floor.Rooms.Count} rooms, flow '{_floor.FlowId}'. " +
+                 $"{_floor.Rooms.Count} rooms, flow '{_floor.FlowId}', " +
+                 $"{_geometry.PunchedDoors} flush doors + {_geometry.Corridors} corridors, " +
+                 $"{_geometry.Doors.Count} sealable openings.\n" +
                  "WASD move · LMB fire · SPACE dash · R recite · RMB banish · " +
                  "E interact · TAB Reverie · M map · F3 overlay");
     }
@@ -684,9 +686,19 @@ public sealed partial class FloorRunner : Node2D
         PlacedRoom? room = FindRoom(_pendingSealRoom);
         if (room is null) { _pendingSealRoom = -1; return; }
 
+        // Only seal while the player is genuinely INSIDE.
+        //
+        // TrackRoom keeps the last room while the player stands in a corridor, so a player
+        // who steps into the room and then backs out down the corridor still counts as
+        // being in it — and the seal would then close behind them, locking them OUT of a
+        // room whose encounter is running. That is a softlock, not an inconvenience: the
+        // fight cannot progress because nothing can reach anything, and the doors only open
+        // when the fight ends.
+        if (!_geometry.RoomInteriorWorld(room).HasPoint(_player.GlobalPosition)) return;
+
         foreach (Doorway d in _geometry.Doors)
         {
-            if (d.RoomA != room.NodeId && d.RoomB != room.NodeId) continue;
+            if (d.Room != room.NodeId) continue;
             // Generous clearance: the player's body radius plus a margin, so the seal never
             // materialises against them.
             if (d.WorldRect.Grow(DoorClearance).HasPoint(_player.GlobalPosition)) return;
@@ -710,14 +722,13 @@ public sealed partial class FloorRunner : Node2D
 
         foreach (Doorway d in _geometry.Doors)
         {
-            int key = d.RoomA * 10000 + d.RoomB;
-            if (!_doorSeals.TryGetValue(key, out StaticBody2D? body)) continue;
+            if (!_doorSeals.TryGetValue(d.Index, out StaticBody2D? body)) continue;
             if (!d.WorldRect.Grow(4f).HasPoint(_player.GlobalPosition)) continue;
 
             GD.PrintErr("[FloorRunner] player found inside a sealed door — opening it. " +
                         "This should be unreachable; the seal ordering has a gap.");
             body.QueueFree();
-            _doorSeals.Remove(key);
+            _doorSeals.Remove(d.Index);
             return;
         }
     }
@@ -1017,21 +1028,20 @@ public sealed partial class FloorRunner : Node2D
     {
         foreach (Doorway d in _geometry.Doors)
         {
-            if (d.RoomA != room.NodeId && d.RoomB != room.NodeId) continue;
-            int key = d.RoomA * 10000 + d.RoomB;
+            if (d.Room != room.NodeId) continue;
 
             if (sealed_)
             {
-                if (_doorSeals.ContainsKey(key)) continue;
+                if (_doorSeals.ContainsKey(d.Index)) continue;
                 var body = new StaticBody2D { Position = d.WorldRect.Position + d.WorldRect.Size * 0.5f };
                 body.AddChild(new CollisionShape2D { Shape = new RectangleShape2D { Size = d.WorldRect.Size } });
                 AddChild(body);
-                _doorSeals[key] = body;
+                _doorSeals[d.Index] = body;
             }
-            else if (_doorSeals.TryGetValue(key, out StaticBody2D? body))
+            else if (_doorSeals.TryGetValue(d.Index, out StaticBody2D? body))
             {
                 body.QueueFree();
-                _doorSeals.Remove(key);
+                _doorSeals.Remove(d.Index);
             }
         }
     }
@@ -1273,10 +1283,13 @@ public sealed partial class FloorRunner : Node2D
     public override void _Draw()
     {
         // Sealed doorways, so the player can see why they cannot leave.
+        // Only the CURRENT room's doorways are drawn. Every opening now belongs to exactly
+        // one room, so drawing all of them would paint both sides of every shared threshold
+        // and every corridor mouth on the floor at once.
         foreach (Doorway d in _geometry.Doors)
         {
-            int key = d.RoomA * 10000 + d.RoomB;
-            bool isSealed = _doorSeals.ContainsKey(key);
+            if (d.Room != _currentRoom) continue;
+            bool isSealed = _doorSeals.ContainsKey(d.Index);
             DrawRect(d.WorldRect, isSealed ? new Color("B0122A") : new Color("2A3038"));
         }
 
