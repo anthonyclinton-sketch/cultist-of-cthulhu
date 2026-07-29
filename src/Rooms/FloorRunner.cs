@@ -169,7 +169,7 @@ public sealed partial class FloorRunner : Node2D
         _player = new PlayerController
         {
             Name = nameof(PlayerController),
-            Position = _geometry.RoomCentreWorld(entrance),
+            Position = _geometry.RoomAnchorWorld(entrance),
             EnemyBullets = _enemyBullets,
             PlayerBullets = _playerBullets,
             Enemies = _enemies,
@@ -415,6 +415,7 @@ public sealed partial class FloorRunner : Node2D
         // room's own seed makes that idempotent: walking back into a shop finds the same
         // stock, at the same prices, with whatever was bought still gone.
         _content.EnterRoom(room, _geometry.RoomRectWorld(room).Grow(-40f),
+                           _geometry.RoomAnchorWorld(room),
                            Hash.Derive(GameRoot.Instance.RunSeed, "room_content", nodeId));
 
         if (_clearedRooms.Contains(nodeId)) return;
@@ -454,7 +455,7 @@ public sealed partial class FloorRunner : Node2D
             return;
         }
 
-        Vector2 centre = _geometry.RoomCentreWorld(room);
+        Vector2 centre = _geometry.RoomAnchorWorld(room);
         _boss = new Boss(_bossData, centre + new Vector2(0f, -140f), _enemyBullets,
                          Hash.Derive(GameRoot.Instance.RunSeed, "boss", room.NodeId));
         _boss.SetWalls(_enemies.Walls);
@@ -738,7 +739,7 @@ public sealed partial class FloorRunner : Node2D
         if (_reverie.IsOpen) _reverie.Close();
 
         PlacedRoom entrance = _floor.FindRole(RoomRole.Entrance)!;
-        _player.ResetForTest(_geometry.RoomCentreWorld(entrance));
+        _player.ResetForTest(_geometry.RoomAnchorWorld(entrance));
         BuildCircle();
         EnterRoom(entrance.NodeId);
     }
@@ -803,7 +804,7 @@ public sealed partial class FloorRunner : Node2D
                 foreach (PlacedRoom r in _floor.Rooms)
                 {
                     if (!IsCombatRole(r.Role)) continue;
-                    _player.GlobalPosition = _geometry.RoomCentreWorld(r);
+                    _player.GlobalPosition = _geometry.RoomAnchorWorld(r);
                     EnterRoom(r.NodeId);
                     GD.Print($"[screenshot] combat demo — moved to {r.Template.Id} ({r.Role}), " +
                              $"{_enemies.AliveCount} enemies");
@@ -902,7 +903,7 @@ public sealed partial class FloorRunner : Node2D
         _player.AddGold(600);
         _player.AddKeys(3);
 
-        _player.GlobalPosition = _geometry.RoomCentreWorld(room);
+        _player.GlobalPosition = _geometry.RoomAnchorWorld(room);
         EnterRoom(room.NodeId);
 
         // Stand ON something, so the capture shows the prompt as well as the furniture —
@@ -1102,13 +1103,27 @@ public sealed partial class FloorTiles : Node2D
     private static readonly Color FloorColour = new("1A1D24");
     private static readonly Color GridColour = new("22262F");
 
+    /// <summary>
+    /// Walls are drawn, not merely absent.
+    ///
+    /// Before authored interiors it did not matter: the only non-floor was outside the
+    /// room, and unlit void reads correctly as "not here". A pillar in the middle of a
+    /// room does not — it read as a hole in the floor rather than something to stand
+    /// behind, and cover the player cannot identify at a glance is cover they will not use.
+    /// Solid mass with a lit top edge, so a block reads as an object above the floor.
+    /// </summary>
+    private static readonly Color WallColour = new("2E333D");
+    private static readonly Color WallEdge = new("3D4450");
+
     public override void _Ready()
     {
         foreach (Rect2 r in Geometry.BuildFloorRects()) _rects.Add(r);
+        foreach (Rect2 r in Geometry.BuildWallRects()) _walls.Add(r);
         QueueRedraw();
     }
 
     private readonly List<Rect2> _rects = new();
+    private readonly List<Rect2> _walls = new();
 
     public override void _Draw()
     {
@@ -1116,6 +1131,12 @@ public sealed partial class FloorTiles : Node2D
         {
             DrawRect(r, FloorColour);
             DrawRect(r, GridColour, filled: false, width: 1f);
+        }
+
+        foreach (Rect2 r in _walls)
+        {
+            DrawRect(r, WallColour);
+            DrawRect(new Rect2(r.Position, new Vector2(r.Size.X, 2f)), WallEdge);
         }
     }
 }

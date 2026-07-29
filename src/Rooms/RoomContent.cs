@@ -46,16 +46,29 @@ public sealed partial class RoomContent : Node2D
     private string _flash = "";
     private float _flashAge;
 
+    /// <summary>Where this room's furniture is laid out from — a guaranteed-standable point,
+    /// not necessarily the geometric centre.</summary>
+    private Vector2 _centre;
+
     public IReadOnlyList<Interactable> Items => _items;
     public bool HasContent => _items.Count > 0;
 
     // ---------------------------------------------------------------- Population
 
-    /// <summary>Discard the previous room's furniture. Rooms are visited one at a time.</summary>
-    public void EnterRoom(PlacedRoom room, Rect2 interior, Rng roomRng)
+    /// <summary>
+    /// Discard the previous room's furniture and lay out this one. Rooms are visited one
+    /// at a time.
+    ///
+    /// Takes an explicit <paramref name="centre"/> rather than deriving one from the
+    /// interior rect, because a room's geometric centre may be inside an authored block.
+    /// Non-combat templates carry no obstacles today, so this costs nothing now and stops
+    /// the first shop template that gains a counter from putting its stock inside it.
+    /// </summary>
+    public void EnterRoom(PlacedRoom room, Rect2 interior, Vector2 centre, Rng roomRng)
     {
         _items.Clear();
         _focus = null;
+        _centre = centre;
 
         // Populate once per room per run. Re-rolling on re-entry would turn a reward room
         // into an infinite sigil dispenser, which is the most obvious possible exploit and
@@ -103,7 +116,7 @@ public sealed partial class RoomContent : Node2D
             if (s is not null) { taken.Add(s); offers.Add(s); }
         }
 
-        Vector2 centre = interior.Position + interior.Size * 0.5f;
+        Vector2 centre = _centre;
         float spacing = 78f;
         float startX = centre.X - spacing * (offers.Count - 1) * 0.5f;
 
@@ -130,7 +143,7 @@ public sealed partial class RoomContent : Node2D
     /// </summary>
     private void PopulateShop(Rect2 interior, Rng rng)
     {
-        Vector2 c = interior.Position + interior.Size * 0.5f;
+        Vector2 c = _centre;
         float priceMult = Player.Circle.Effects.ShopPriceMultiplier;
         float floorScale = InscriptionData.FloorScale(FloorIndex);
 
@@ -240,7 +253,7 @@ public sealed partial class RoomContent : Node2D
     /// </summary>
     private void PopulateShrine(Rect2 interior, Rng rng)
     {
-        Vector2 c = interior.Position + interior.Size * 0.5f;
+        Vector2 c = _centre;
         var kind = (ShrineKind)rng.NextInt(0, 4);
 
         var it = new Interactable
@@ -287,7 +300,7 @@ public sealed partial class RoomContent : Node2D
     /// finding was the cost.</summary>
     private void PopulateSecret(Rect2 interior, Rng rng)
     {
-        Vector2 c = interior.Position + interior.Size * 0.5f;
+        Vector2 c = _centre;
         _items.Add(MakeChest(c, tier: 2, keyCost: 0, rng));
         Pickups.Spawn(PickupKind.SanityCandle, c + new Vector2(0f, 34f), Tune.SanityCandleValue, rng);
     }
@@ -298,7 +311,7 @@ public sealed partial class RoomContent : Node2D
         if (_keyChestPlaced) return;
         _keyChestPlaced = true;
 
-        Vector2 c = interior.Position + interior.Size * 0.5f;
+        Vector2 c = _centre;
         _items.Add(new Interactable
         {
             Kind = InteractableKind.Chest,

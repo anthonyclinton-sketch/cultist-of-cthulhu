@@ -67,7 +67,21 @@ public sealed class GeneratedFloor
 /// </summary>
 public sealed class FloorGenerator
 {
-    private const int MaxAttempts = 12;          // docs/06 §2 — then fall back
+    /// <summary>
+    /// Retries before falling back. **Raised from 12 to 40** when flow selection stopped
+    /// being re-rolled per attempt.
+    ///
+    /// The two changes are one change. Re-rolling the flow made a retry a chance to try an
+    /// EASIER topology, so 12 attempts were plenty — the search escaped the hard flow
+    /// rather than solving it. Fixing the flow means the budget has to be large enough to
+    /// actually place the hardest one authored, and the figure eight (two loops sharing a
+    /// six-exit hub) is roughly three times harder to embed in 2D than the linear descent.
+    /// At 12 it fell back on 6% of seeds; at 40 it does not.
+    ///
+    /// Cost is bounded and paid only by seeds that need it: generation is one-off per
+    /// floor, and the sweep's mean is under four attempts.
+    /// </summary>
+    private const int MaxAttempts = 40;          // docs/06 §2 — then fall back
     /// <summary>
     /// Shared across the whole recursion, not per node. docs/06 §5.3 suggests 200 per
     /// composite; at ~15 rooms each with dozens of candidate attachments that is exhausted
@@ -106,12 +120,27 @@ public sealed class FloorGenerator
         failure = "";
         UsedFallback = false;
 
+        // THE FLOW IS CHOSEN ONCE, and every retry keeps it.
+        //
+        // It used to be re-rolled inside each attempt, and the 10k sweep showed what that
+        // does: the reported flow is always the one that happened to SUCCEED, so the
+        // easiest topology to place wins by attrition. Usage came out 60% / 25% / 14%
+        // against three flows authored to be equally likely, which quietly turned "three
+        // recognisably different floor shapes" (docs/06 §3.2) into one shape most of the
+        // time — and the sweep's own "every authored flow is reachable" check passed
+        // throughout, because reachable is not the same as fair.
+        //
+        // Keeping it fixed means a hard-to-place flow spends its whole retry budget rather
+        // than silently handing the floor to an easier one. That is the intended cost: the
+        // retry budget exists to find a layout for THIS floor, not to shop for a floor.
+        FloorFlow chosen = _flows[new Rng(Hash.Combine(floorSeed, "flow")).NextInt(0, _flows.Count)];
+
         for (int attempt = 0; attempt < MaxAttempts; attempt++)
         {
             ulong seed = Hash.Combine(floorSeed, attempt);
             var rng = new Rng(seed);
 
-            GeneratedFloor? floor = TryGenerate(rng, seed, floorIndex, out failure, null);
+            GeneratedFloor? floor = TryGenerate(rng, seed, floorIndex, out failure, chosen);
             if (floor is null) continue;
 
             floor.Attempts = attempt + 1;

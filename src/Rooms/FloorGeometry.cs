@@ -61,6 +61,56 @@ public sealed class FloorGeometry
         (r.Position.X + r.Width * 0.5f) * Tile,
         (r.Position.Y + r.Height * 0.5f) * Tile);
 
+    /// <summary>
+    /// A point in this room that is guaranteed to be standable: the centre if it is clear,
+    /// otherwise the nearest open interior tile.
+    ///
+    /// Everything that PLACES something in a room must use this rather than the geometric
+    /// centre. Authored interiors made that distinction real — long_table's whole design is
+    /// a block through the middle of the room, and great_cistern's basin sits dead centre —
+    /// so "the centre" is now a position that may well be inside a wall. The player spawn,
+    /// the boss's opening position, the shop's furniture and the corridor endpoints all
+    /// went through the geometric centre, and every one of them would have been placed
+    /// inside solid rock.
+    /// </summary>
+    public Vector2 RoomAnchorWorld(PlacedRoom r)
+    {
+        Vector2I t = AnchorTile(r);
+        return new Vector2((t.X + 0.5f) * Tile, (t.Y + 0.5f) * Tile);
+    }
+
+    /// <summary>Nearest open interior tile to the room's centre, in world tile coordinates.</summary>
+    private Vector2I AnchorTile(PlacedRoom r)
+    {
+        Vector2I centre = r.Centre;
+        if (IsWalkableWorldTile(centre)) return centre;
+
+        int maxRing = Mathf.Max(r.Width, r.Height) / 2 + 1;
+        for (int ring = 1; ring <= maxRing; ring++)
+        {
+            for (int dy = -ring; dy <= ring; dy++)
+            {
+                for (int dx = -ring; dx <= ring; dx++)
+                {
+                    // Perimeter of this ring only; the interior was covered by earlier ones.
+                    if (Mathf.Abs(dx) != ring && Mathf.Abs(dy) != ring) continue;
+
+                    var c = new Vector2I(centre.X + dx, centre.Y + dy);
+                    if (c.X <= r.Position.X || c.Y <= r.Position.Y) continue;
+                    if (c.X >= r.Position.X + r.Width - 1 || c.Y >= r.Position.Y + r.Height - 1) continue;
+                    if (IsWalkableWorldTile(c)) return c;
+                }
+            }
+        }
+        return centre;
+    }
+
+    private bool IsWalkableWorldTile(Vector2I world)
+    {
+        Vector2I l = ToLocal(world);
+        return IsWalkable(l.X, l.Y);
+    }
+
     public Rect2 RoomRectWorld(PlacedRoom r) => new(
         r.Position.X * Tile, r.Position.Y * Tile, r.Width * Tile, r.Height * Tile);
 
@@ -83,6 +133,28 @@ public sealed class FloorGeometry
         for (int y = p.Y + 1; y < p.Y + r.Height - 1; y++)
             for (int x = p.X + 1; x < p.X + r.Width - 1; x++)
                 if (x >= 0 && y >= 0 && x < Width && y < Height) _walkable[x, y] = true;
+
+        // Then punch the authored interior back out. Order matters: obstacles are carved
+        // AFTER the interior so a block always wins over the floor beneath it, and they are
+        // written into the same walkable grid rather than tracked separately — which is
+        // what makes every system that already respects walls respect a pillar for free.
+        //
+        // Rooms may be placed rotated in a later milestone; today they are not, so the
+        // template's local coordinates are the room's coordinates.
+        RoomTemplate t = r.Template;
+        for (int i = 0; i < t.ObstacleCount; i++)
+        {
+            Rect2I o = t.ObstacleAt(i);
+            for (int y = 0; y < o.Size.Y; y++)
+            {
+                for (int x = 0; x < o.Size.X; x++)
+                {
+                    int gx = p.X + o.Position.X + x;
+                    int gy = p.Y + o.Position.Y + y;
+                    if (gx >= 0 && gy >= 0 && gx < Width && gy < Height) _walkable[gx, gy] = false;
+                }
+            }
+        }
     }
 
     private void CarveConnections(GeneratedFloor floor)
@@ -171,8 +243,12 @@ public sealed class FloorGeometry
     /// vertical — consistent so corridors read as deliberate rather than organic.</summary>
     private void CarveCorridor(PlacedRoom a, PlacedRoom b)
     {
-        Vector2I p0 = a.Centre;
-        Vector2I p1 = b.Centre;
+        // From ANCHOR to anchor, not centre to centre. A corridor is carved as a 3-wide
+        // channel along its whole length, including the part inside the rooms — so running
+        // it from a centre that sits inside an authored block would bore a hole straight
+        // through the long table, which is the one feature that room exists for.
+        Vector2I p0 = AnchorTile(a);
+        Vector2I p1 = AnchorTile(b);
 
         int step = p1.X >= p0.X ? 1 : -1;
         for (int x = p0.X; x != p1.X + step; x += step) CarveWide(x, p0.Y);

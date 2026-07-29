@@ -79,17 +79,42 @@ public sealed partial class WallCollisionTest : Node2D
     /// Sanity check on the mask itself before anything is asserted against it. An
     /// all-solid mask would make every test below pass trivially — bullets die instantly,
     /// enemies never move — and report a healthy gate for a floor nobody can walk on.
+    ///
+    /// Tests the room ANCHOR, not the geometric centre. Authored interiors made that
+    /// distinction real: long_table's design is a block through the middle of the room and
+    /// great_cistern's basin sits dead centre, so a solid centre is now correct content
+    /// rather than a fault. The property that actually matters is that every room offers
+    /// somewhere to stand, and that most of the room is that somewhere — a template whose
+    /// obstacles swallowed its interior would satisfy a bare anchor test.
     /// </summary>
     private void TestRoomCentresAreOpen(GeneratedFloor floor, FloorGeometry geometry,
                                         TileMask mask, string seedText)
     {
         int solid = 0;
+        int cramped = 0;
+
         foreach (PlacedRoom r in floor.Rooms)
         {
-            Vector2 c = geometry.RoomCentreWorld(r);
+            Vector2 c = geometry.RoomAnchorWorld(r);
             if (mask.IsSolid(c.X, c.Y)) solid++;
+
+            // Count the open fraction of the interior. Obstacles are cover, not maze walls.
+            Rect2 interior = geometry.RoomInteriorWorld(r);
+            int open = 0, total = 0;
+            for (float y = interior.Position.Y; y < interior.Position.Y + interior.Size.Y; y += FloorGeometry.Tile)
+            {
+                for (float x = interior.Position.X; x < interior.Position.X + interior.Size.X; x += FloorGeometry.Tile)
+                {
+                    total++;
+                    if (!mask.IsSolid(x, y)) open++;
+                }
+            }
+            if (total > 0 && open / (float)total < 0.6f) cramped++;
         }
-        Check(solid == 0, $"seed {seedText}: every room centre is open ({solid} solid)");
+
+        Check(solid == 0, $"seed {seedText}: every room offers a standable anchor ({solid} solid)");
+        Check(cramped == 0,
+              $"seed {seedText}: no room is more than 40% obstacle ({cramped} over budget)");
     }
 
     /// <summary>
@@ -108,7 +133,7 @@ public sealed partial class WallCollisionTest : Node2D
 
         foreach (PlacedRoom r in floor.Rooms)
         {
-            Vector2 c = geometry.RoomCentreWorld(r);
+            Vector2 c = geometry.RoomAnchorWorld(r);
             for (int i = 0; i < 32; i++)
             {
                 float a = i / 32f * Mathf.Tau;
@@ -154,7 +179,7 @@ public sealed partial class WallCollisionTest : Node2D
 
         foreach (PlacedRoom r in floor.Rooms)
         {
-            Vector2 c = geometry.RoomCentreWorld(r);
+            Vector2 c = geometry.RoomAnchorWorld(r);
             for (int i = 0; i < 16; i++)
             {
                 float a = i / 16f * Mathf.Tau;
