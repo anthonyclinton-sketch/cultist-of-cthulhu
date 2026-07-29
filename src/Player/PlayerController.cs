@@ -573,12 +573,47 @@ public sealed partial class PlayerController : CharacterBody2D
     private void HandleBlinkInput()
     {
         if (!Input.IsActionJustPressed("blink_step")) return;
-        if (Phase != BlinkPhase.None && Phase != BlinkPhase.Recovery) return;
+        TryBeginBlink();
+    }
+
+    /// <summary>
+    /// Request a Blink Step, with the input read already done.
+    ///
+    /// Split out so the frame data can be MEASURED. Driving it through
+    /// <c>Input.IsActionJustPressed</c> from a synthetic tick loop does not work: Godot
+    /// clears "just pressed" when its own input frame advances, and a harness calling
+    /// _PhysicsProcess by hand never advances one — so a single synthetic press reads as
+    /// pressed on every tick and the measurement silently becomes a mash test. The frame
+    /// data is a property of this state machine, not of input polling, so the test drives
+    /// the state machine.
+    /// </summary>
+    public bool TryBeginBlink()
+    {
+        // ONE DODGE AT A TIME. Not cancellable into another.
+        //
+        // This used to permit a re-trigger during Recovery, and the cooldown was only armed
+        // in TickBlink's natural-completion branch — so a cancelled dodge never paid it. The
+        // measured result was a 17-frame cycle against the documented 31.2, and the player
+        // invulnerable 82% of all frames instead of the 45% the frame data implies. Mashing
+        // the button was very close to permanent invulnerability while moving, which is
+        // exactly what it felt like.
+        //
+        // docs/02 §4 lists Recovery as "cancellable into another Blink Step (double-cost)",
+        // and that clause's only brake was the double Sanity cost — which fallback F4 set to
+        // zero. The same section states the surviving invariant plainly: "the full cycle is
+        // 24 frames + 0.12s ~= 0.52s ... and it must be protected", because post-F4 the
+        // vulnerable tail and the cooldown are the ONLY things between the player and
+        // dodge-spam. A free cancel deletes both. Protecting the cycle is the reading that
+        // still has a brake in it.
+        //
+        // Cancelling Recovery into FIRING (frame 20) is untouched and unimplemented; that
+        // one costs the player their dodge, so it needs no separate price.
+        if (Phase != BlinkPhase.None) return false;
 
         // FREE (fallback F4). The limiter is the cooldown plus the 8-frame vulnerable
         // recovery tail — spamming is punished by the tail, not by a price, which is what
         // makes timing rather than budgeting the skill.
-        if (_blinkCooldown > 0f) return;
+        if (_blinkCooldown > 0f) return false;
 
         // Cost is 0 by default; the call is kept so flipping Tune.SanityBlinkCost to 18
         // restores the metered variant (Build B) with no code change. The sigil discount
@@ -589,7 +624,7 @@ public sealed partial class PlayerController : CharacterBody2D
         if (blinkCost > 0f && !Sanity.TrySpend(blinkCost))
         {
             DeniedBlinkCount++;
-            return;
+            return false;
         }
         if (blinkCost > 0f) NoteSanitySpend();
 
@@ -625,6 +660,7 @@ public sealed partial class PlayerController : CharacterBody2D
 
         _blinkVelocity = dir * dashSpeed;
         _smoothedVelocity = _blinkVelocity;
+        return true;
     }
 
     private void TickBlink()

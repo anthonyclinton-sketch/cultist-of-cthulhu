@@ -118,6 +118,10 @@ Write-Host "`n### AUTORUN — THREE FLOORS (descent carries the run) ###"
 & $godot --headless --path $root res://scenes/debug/FloorRunner.tscn --seed $Seed --autorun --floors=3 --quit-after 60000
 if ($LASTEXITCODE -ne 0) { $failed += "autorun (3 floors)" }
 
+Write-Host "`n### BLINK STEP FRAME DATA ###"
+& $godot --headless --path $root res://scenes/debug/BlinkTest.tscn
+if ($LASTEXITCODE -ne 0) { $failed += "blink frame data" }
+
 Write-Host "`n### CORRUPTION ###"
 & $godot --headless --path $root res://scenes/debug/CorruptionTest.tscn
 if ($LASTEXITCODE -ne 0) { $failed += "corruption" }

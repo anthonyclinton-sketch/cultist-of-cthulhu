@@ -64,6 +64,15 @@ jobs:
       - name: Banish
         run: ~/godot/bin/Godot_v${GODOT_VERSION}_mono_linux.x86_64 --headless --path . res://scenes/debug/BanishTest.tscn
 
+      # docs/02 §4 calls Blink Step "the single most-pressed button. Its spec is the spec of
+      # the game", and names one invariant: the full cycle is 24 frames + 0.12s and MUST be
+      # protected, because post-F4 the vulnerable tail and the cooldown are the only brakes
+      # on dodge-spam. The Tune constants said the right thing while the state machine let a
+      # mashing player halve the cycle, so this measures the controller rather than the
+      # numbers it was transcribed from.
+      - name: Blink Step frame data
+        run: ~/godot/bin/Godot_v${GODOT_VERSION}_mono_linux.x86_64 --headless --path . res://scenes/debug/BlinkTest.tscn
+
       # Corruption is the design's difficulty selector, and for two milestones it only ever
       # made the game EASIER — it accrued from four sources and the only thing reading it was
       # the loot-tier bump. The assertions are directional: as it rises, something must get
