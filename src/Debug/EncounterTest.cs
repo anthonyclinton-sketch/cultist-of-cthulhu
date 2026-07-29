@@ -41,6 +41,7 @@ public sealed partial class EncounterTest : Node2D
         TestPowerClamp();
         TestTierWeightingBeatsCellCount();
         TestBudgetResponds();
+        ReportFloorCurve();
         TestWaves();
 
         GD.Print("================================================================");
@@ -130,6 +131,56 @@ public sealed partial class EncounterTest : Node2D
         float absurd = DreadBudget.For(6, 40, hard, RoomRole.CombatHard, 10f, DreadBudget.PowerMax);
         Check(absurd <= hard.ThreatCapacity + 0.01f,
               $"ThreatCapacity caps the result ({absurd:F0} <= {hard.ThreatCapacity:F0})");
+    }
+
+    /// <summary>
+    /// Print the whole difficulty curve, floor by floor, and assert only its shape.
+    ///
+    /// docs/07 §2 has floors escalating in length and docs/06 §6.1 has base(floor) escalating
+    /// the budget, but neither states the rate — so the numbers below are reported rather
+    /// than gated, and the two things asserted are the ones the design clearly requires: a
+    /// deeper floor must be harder than a shallower one at the same point, and the run must
+    /// escalate overall.
+    ///
+    /// It is printed because the shape is the interesting part. Within-floor progression and
+    /// floor-over-floor progression are separate terms and it is entirely possible for one to
+    /// swamp the other, which no single assertion would reveal.
+    /// </summary>
+    private void ReportFloorCurve()
+    {
+        List<RoomTemplate> rooms = UndercroftContent.Rooms();
+        RoomTemplate? med = null;
+        foreach (RoomTemplate t in rooms) if (t.Role == RoomRole.CombatMed) { med = t; break; }
+        if (med is null) { Check(false, "a CombatMed template exists"); return; }
+
+        GD.Print($" budget curve on '{med.Id}' at Corruption 0, power 1.0 " +
+                 $"(capacity {med.ThreatCapacity:F0}):");
+
+        var first = new float[7];
+        var last = new float[7];
+
+        for (int floor = 1; floor <= 6; floor++)
+        {
+            first[floor] = DreadBudget.For(floor, 0, med, RoomRole.CombatMed, 0f, 1f);
+            last[floor] = DreadBudget.For(floor, 10, med, RoomRole.CombatMed, 0f, 1f);
+            GD.Print($"   floor {floor}   first room {first[floor],6:F0}   " +
+                     $"tenth room {last[floor],6:F0}");
+        }
+
+        Check(first[6] > first[1],
+              $"a deeper floor opens harder than a shallower one ({first[1]:F0} -> {first[6]:F0})");
+        Check(last[6] > last[1],
+              $"and ends harder ({last[1]:F0} -> {last[6]:F0})");
+
+        // The shape check the print exists for: if the within-floor ramp swamps the
+        // floor-over-floor lift, a late room on floor 1 is harder than an early room on floor
+        // 6 and the run does not read as a descent. Reported, not failed — the docs give no
+        // rate, so this is a tuning judgement rather than a broken invariant.
+        if (last[1] > first[6])
+        {
+            GD.Print($"   [note] floor 1's tenth room ({last[1]:F0}) outweighs floor 6's first " +
+                     $"({first[6]:F0}) — the within-floor ramp dominates the floor lift.");
+        }
     }
 
     /// <summary>The wave machinery, driven against a real floor.</summary>
