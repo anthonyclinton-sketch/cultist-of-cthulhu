@@ -12,6 +12,9 @@ Beneath Arkham, a door has been open since 1692. You are a cultist who has chose
 
 ---
 
+> **Picking this up in a new session? Start with [HANDOVER.md](HANDOVER.md)** — what is
+> built, what the gates cover (and what they cannot), and the next focus.
+
 > **Reviewed and revised, 26 July 2026.** Fable's design review is complete; findings and their resolutions are recorded in [HANDOVER-FOR-REVIEW.md](HANDOVER-FOR-REVIEW.md) §9. Review notes are inline throughout the docs as `[REVIEW — Fable]`; decisions taken in response are marked `[DECISION — Opus]`.
 
 ## Document Index
