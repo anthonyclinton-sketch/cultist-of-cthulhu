@@ -11,11 +11,30 @@
 | Sprite footprint | 20 × 32 px | High-res pixel art, 1 unit = 16px |
 | **Hitbox** | 6 px radius circle, at the sternum | Deliberately far smaller than the sprite — bullet hell convention |
 | Hitbox visibility | Always faintly visible; **fully lit while Blink Stepping** | Non-negotiable readability rule |
-| Base move speed | 5.6 units/s (≈90 px/s) | |
+| Base move speed | **9.0 units/s (144 px/s)** *(raised from 5.6)* | See the note below |
 | Move speed while firing | ×0.82 | Small penalty; keeps kiting viable but not free |
 | Acceleration | 0 → max in 0.06s | Near-instant. Bullet hell demands 1:1 input. |
 | Deceleration | max → 0 in 0.05s | No ice. Ever. |
 | Collision layer | `Player` (1) | Separate from `PlayerHurtbox` (2) |
+
+> **[PLAYTEST — 26 Jul 2026] Move speed raised 1.6× to follow the room rescale.**
+>
+> When rooms were scaled to be screen-relative ([06 §4.1](06-procedural-generation.md)) they grew ~2.5× linearly, and 90 px/s left a 1088px room taking **twelve seconds** to cross.
+>
+> **Not scaled by the full 2.5×, deliberately.** Traversal is a *room-scale* concern but reaction time is a *screen-scale* one, and the screen did not change size — a player crossing the viewport in under three seconds reads patterns very differently. 1.6× restores traversal without rewriting how every pattern plays.
+>
+> **Two things had to move with it, or the change would have broken more than it fixed:**
+>
+> | | Was | Now | Why |
+> |---|---|---|---|
+> | Enemy move speeds | 30–86 px/s | **48–140** | A Rusher at 86 px/s can never close on a player at 144. The role simply stops existing. |
+> | Enemy bullet speeds | 70–105 px/s | **106–158** | Not a difficulty change — a 78 px/s bullet with a 7s life dies **546px** into a 1088px room, so it cannot threaten anyone across it. Slow bullets in a big room are inert. |
+>
+> Enemy `PreferredRange` and `AggroRange` scaled too; a Turret with 1200px aggro is asleep in a room wider than that.
+>
+> **The dash scales for free** — it is a multiple of move speed (§4), so its reach went 57px → 92px, which is what makes it a traversal tool in a big room rather than only an i-frame button.
+>
+> **Still open:** the player now outruns every enemy projectile in a straight line. That matters less than it sounds (straight bullets do not chase, so what counts is sidestep timing) but it does make positioning more forgiving. Watch it in the M1 playtest before compensating — the honest lever is pattern *density*, not bullet speed.
 
 **Rule:** the movement controller is *not* physics-driven. No `RigidBody2D`. `CharacterBody2D` with directly assigned velocity in `_PhysicsProcess`. Any "weight" the character has is animation, not simulation.
 

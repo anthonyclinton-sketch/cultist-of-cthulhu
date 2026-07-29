@@ -19,7 +19,24 @@ public static class Tune
     // ---------------------------------------------------------------- Player (docs/02 §1.1)
 
     public const float PlayerHitboxRadius = 6f;          // px — deliberately far smaller than the sprite
-    public const float PlayerMoveSpeed = 5.6f * PixelsPerUnit;
+    /// <summary>
+    /// **9.0 units/s = 144 px/s**, raised from 5.6 (89.6 px/s) when rooms were scaled to
+    /// be screen-relative.
+    ///
+    /// At the old speed a screen took 7.1 seconds to cross and the new 1088px-wide rooms
+    /// took twelve. Traversal is a room-scale concern, so when rooms grew ~2.5x linearly
+    /// movement had to follow.
+    ///
+    /// NOT scaled by the full 2.5x, deliberately. Reaction time is a SCREEN-scale concern
+    /// and the screen did not change size — a player crossing the viewport in under three
+    /// seconds reads bullet patterns very differently. 1.6x restores traversal without
+    /// rewriting how every pattern plays.
+    ///
+    /// Everything derived from this scales for free: the dash is a multiple of move speed
+    /// (docs/02 §4), so its reach went 57px -> 92px, which is what makes it useful for
+    /// crossing a big room rather than just for i-frames.
+    /// </summary>
+    public const float PlayerMoveSpeed = 9.0f * PixelsPerUnit;
     public const float PlayerFiringSpeedMult = 0.82f;
     public const float PlayerAccelTime = 0.06f;          // seconds 0 -> max
     public const float PlayerDecelTime = 0.05f;          // no ice, ever
