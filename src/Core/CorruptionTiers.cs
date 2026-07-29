@@ -70,10 +70,42 @@ public static class CorruptionTiers
     public static string Describe(float corruption) => TierFor(corruption) switch
     {
         0 => "unmarked",
-        1 => "marked — the doors notice you",
-        3 => "awakened — they are stronger, and they have learned something",
+        1 => "marked",
+        3 => "awakened",
         5 => "hunted",
-        7 => "thronged — the rooms are fuller",
+        7 => "thronged",
         _ => "THE YELLOW SIGN",
     };
+
+    /// <summary>
+    /// The next threshold above the current value, or 0 at the cap.
+    ///
+    /// Exists because the HUD needs to answer a question the pip row cannot: not "how
+    /// corrupt am I" but "what does the next one cost me". Banish grants 0.25, so a player
+    /// is almost always between thresholds, and a readout that only shows the tier already
+    /// reached says nothing at all for three spends out of four.
+    /// </summary>
+    public static float NextThreshold(float corruption) =>
+        corruption < Tune.CorruptionFirst ? Tune.CorruptionFirst
+        : corruption < Tune.CorruptionAwakened ? Tune.CorruptionAwakened
+        : corruption < Tune.CorruptionHound ? Tune.CorruptionHound
+        : corruption < Tune.CorruptionSwarm ? Tune.CorruptionSwarm
+        : corruption < Tune.CorruptionYellowSign ? Tune.CorruptionYellowSign
+        : 0f;
+
+    /// <summary>What crossing the next threshold will do. Short enough for one HUD line.</summary>
+    public static string NextEffect(float corruption)
+    {
+        float next = NextThreshold(corruption);
+        if (next <= 0f) return "";
+
+        return next switch
+        {
+            Tune.CorruptionFirst => "better loot",
+            Tune.CorruptionAwakened => "they awaken",
+            Tune.CorruptionHound => "something hunts you",
+            Tune.CorruptionSwarm => "fuller rooms",
+            _ => "the Yellow Sign",
+        };
+    }
 }

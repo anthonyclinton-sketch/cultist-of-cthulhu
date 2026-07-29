@@ -35,12 +35,13 @@ public sealed partial class Hud : Node2D
     {
         if (Player is null) return;
 
-        Vector2 anchor = new(70, 300);
+        // The whole defensive cluster sits 14px higher than it did, because the Corruption
+        // readout below it needs two lines and was being clipped by the bottom of a 360px
+        // viewport. Moving the anchor is the fix; squeezing the readout was not.
+        Vector2 anchor = new(70, 286);
         DrawSanityRing(anchor);
         DrawHearts(anchor);
-        // Raised 6px from the original placement: the threshold label sits below the pips and
-        // was landing at y=357 in a 360-tall viewport.
-        DrawCorruption(anchor + new Vector2(-24, 38));
+        DrawCorruption(new Vector2(14, 330));
         DrawCurrency(new Vector2(430, 274));
         DrawWeapon(new Vector2(430, 300));
         DrawBoss();
@@ -216,30 +217,60 @@ public sealed partial class Hud : Node2D
     /// </summary>
     private void DrawCorruption(Vector2 origin)
     {
+        var font = ThemeDB.FallbackFont;
         float c = Player!.Corruption;
-        int full = Mathf.FloorToInt(c);
-        float part = c - full;
 
         bool yellow = Core.CorruptionTiers.YellowSign(c);
         Color pip = yellow ? new Color("F2C14E") : CorruptionColour;
 
+        // CAPTIONED. Without this the row was ten small dots in the corner of a dark screen,
+        // and a player who noticed them at all had no way to know what they counted.
+        DrawString(font, origin, "CORRUPTION", HorizontalAlignment.Left, -1, 8,
+                   yellow ? pip : new Color(0.5f, 0.42f, 0.44f));
+
+        int full = Mathf.FloorToInt(c);
+        float part = c - full;
+        var pips = origin + new Vector2(58f, -3f);
+
         // Ten slots, because 10 is the cap and a fixed row shows how far there is left to go.
+        // Empty slots are drawn far brighter than they were: at 0.22 grey on a dark HUD the
+        // row was invisible, so an unfilled track read as no track at all.
         for (int i = 0; i < 10; i++)
         {
-            Vector2 at = origin + new Vector2(i * 7f, 0f);
-            if (i < full) DrawCircle(at, 2.5f, pip);
-            else if (i == full && part > 0f) DrawCircle(at, 2.5f * part, pip);
-            else DrawCircle(at, 1f, new Color(0.22f, 0.19f, 0.20f));
+            Vector2 at = pips + new Vector2(i * 7f, 0f);
+            if (i < full) DrawCircle(at, 2.6f, pip);
+            else if (i == full && part > 0f)
+            {
+                // A partial pip gets a visible ring as well as its fill, because Banish
+                // grants 0.25 and a quarter-radius dot is not a change anyone can see.
+                DrawArc(at, 2.6f, 0, Mathf.Tau, 10, pip with { A = 0.4f }, 1f);
+                DrawCircle(at, 2.6f * Mathf.Max(0.45f, part), pip);
+            }
+            else
+            {
+                DrawArc(at, 2.2f, 0, Mathf.Tau, 8, new Color(0.34f, 0.30f, 0.32f), 1f);
+            }
         }
 
-        // The threshold, in words. A row of pips says how much; it does not say what the
-        // next one costs, and the thresholds are where the whole stat actually bites.
-        if (c > 0f)
-        {
-            DrawString(ThemeDB.FallbackFont, origin + new Vector2(0f, 13f),
-                       Core.CorruptionTiers.Describe(c), HorizontalAlignment.Left, -1, 8,
-                       yellow ? pip : new Color(0.55f, 0.45f, 0.47f));
-        }
+        // The NUMBER, because the pips cannot express 0.25 granularity and Banish moves it a
+        // quarter at a time.
+        DrawString(font, origin + new Vector2(132f, 0f), $"{c:0.##}",
+                   HorizontalAlignment.Left, -1, 9, yellow ? pip : new Color(0.72f, 0.6f, 0.62f));
+
+        // And what happens NEXT. This is the line that makes the stat a decision rather than
+        // a mystery: the previous version printed the tier already reached, which said
+        // "unmarked" for everything below 1 — actively telling the player nothing had
+        // happened while they were spending Corruption to make it happen.
+        float next = Core.CorruptionTiers.NextThreshold(c);
+        string line = next > 0f
+            ? $"{Core.CorruptionTiers.NextEffect(c)} at {next:0.#}"
+            : "nothing left to lose";
+
+        if (Core.CorruptionTiers.TierFor(c) > 0)
+            line = $"{Core.CorruptionTiers.Describe(c)}  ·  {line}";
+
+        DrawString(font, origin + new Vector2(0f, 12f), line, HorizontalAlignment.Left, -1, 8,
+                   yellow ? pip : new Color(0.5f, 0.42f, 0.44f));
     }
 
     /// <summary>
