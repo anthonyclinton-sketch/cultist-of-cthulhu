@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SigilData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Sigils/SigilData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+Id = "candle_stub"
+DisplayName = "Candle Stub"
+Tier = 0
+Shape = 0
+CodexText = "Tallow, three inches, burned at both ends by someone who could not decide which end was up. It is warm to hold even unlit."
+RulesText = "+10 maximum Sanity."
+Offers = 4
+Wants = 0
+LeyAffinity = 2
+MaxSanityBonus = 10.0

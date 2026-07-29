@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="InscriptionData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Weapons/InscriptionData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+Id = "gaunts_bargain"
+DisplayName = "Gaunt's Bargain"
+Tier = 1
+RulesText = "+45% damage, -40% magazine size."
+ConflictGroup = "magazine"
+RequiresAmmo = true
+BaseGoldCost = 90
+DamageBonus = 0.45
+MagazineMultiplier = 0.6

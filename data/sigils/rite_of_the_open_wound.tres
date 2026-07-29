@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SigilData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Sigils/SigilData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+Id = "rite_of_the_open_wound"
+DisplayName = "Rite of the Open Wound"
+Tier = 2
+Shape = 4
+CodexText = "The rite is short. It is mostly an instruction not to stop."
+RulesText = "Enemies below 30% health take double damage."
+Offers = 128
+Wants = 128
+LeyAffinity = 1
+ExecuteDamageBonus = 1.0

@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SigilData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Sigils/SigilData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+Id = "heart_steady_pulse"
+DisplayName = "Steady Pulse"
+Tier = 2
+Shape = 0
+CodexText = "The Antiquarian's heart. Unremarkable, well looked after, and entirely unwilling to be hurried."
+RulesText = "Heart Sigil. +10% damage. Cannot be removed."
+Offers = 128
+Wants = 0
+LeyAffinity = 0
+DamageBonus = 0.1

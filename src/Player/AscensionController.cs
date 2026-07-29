@@ -50,15 +50,30 @@ public sealed class AscensionController
     /// <summary>True when the last exit could not be paid at all — a fatal default.</summary>
     public bool LastDefaulted { get; private set; }
 
+    /// <summary>
+    /// Sigil modifiers (docs/04 §5.2, Dreamer's Ballast). Pushed down by the player when
+    /// the Circle changes.
+    ///
+    /// The multiplier is a DISCOUNT and is clamped in <see cref="Sigils.SigilEffects"/>
+    /// before it reaches here. This is the single most dangerous number in the game to get
+    /// wrong: the original spec let a sigil remove the exit cost entirely, and combined
+    /// with §6's "cannot kill you" clause that made an Ascension free and farmable forever.
+    /// The clamp lives with the aggregation rather than here so that no future caller can
+    /// reach this field with an unclamped value.
+    /// </summary>
+    public float DurationBonus { get; set; }
+    public float HeartCostMultiplier { get; set; } = 1f;
+
     public float DurationForNext()
     {
         int i = Mathf.Min(AscensionCount, Tune.AscensionDurations.Length - 1);
-        return Tune.AscensionDurations[i];
+        return Tune.AscensionDurations[i] + DurationBonus;
     }
 
     /// <summary>Heart cost of the NEXT exit. Shown so the decision is informed.</summary>
     public float HeartCostForNext()
-        => Tune.AscensionExitHeartCost + Tune.AscensionHeartCostEscalation * AscensionCount;
+        => (Tune.AscensionExitHeartCost + Tune.AscensionHeartCostEscalation * AscensionCount)
+           * Mathf.Max(0.5f, HeartCostMultiplier);
 
     public void Begin(SanitySystem sanity)
     {
@@ -152,5 +167,7 @@ public sealed class AscensionController
         LastMaxHeartDebt = 0f;
         LastMaxSanityPenalty = 0f;
         LastDefaulted = false;
+        DurationBonus = 0f;
+        HeartCostMultiplier = 1f;
     }
 }

@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SigilData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Sigils/SigilData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+Id = "ledger_of_names"
+DisplayName = "The Ledger of Names"
+Tier = 3
+Shape = 4
+CodexText = "Every name that has gone down here, in order, with the date. There is space left at the back. There is always space left at the back."
+RulesText = "Clearing a room without taking damage grants 25 gold."
+Offers = 64
+Wants = 32
+LeyAffinity = 3
+GoldPerCleanRoom = 25

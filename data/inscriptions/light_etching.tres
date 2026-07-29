@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="InscriptionData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Weapons/InscriptionData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+Id = "light_etching"
+DisplayName = "Light Etching"
+Tier = 0
+RulesText = "Reload weight -0.3. Recitation costs less Sanity."
+RequiresAmmo = true
+BaseGoldCost = 45
+ReloadWeightDelta = -0.3

@@ -52,6 +52,10 @@ public sealed partial class FloorRunner : Node2D
     private bool _f7Held;
     private int _roomsCleared;
 
+    private RoomContent _content = null!;
+    private UI.ReverieScreen _reverie = null!;
+    private int _hitsAtRoomStart;
+
     public override void _Ready()
     {
         _rng = Hash.Derive(GameRoot.Instance.RunSeed, "floor_runner");
@@ -62,6 +66,7 @@ public sealed partial class FloorRunner : Node2D
         BuildManagers();
         BuildPlayer();
         BuildCameraAndUi();
+        BuildRoomContent();
 
         ParseScreenshotArgs();
         EnterRoom(_floor.FindRole(RoomRole.Entrance)!.NodeId);
@@ -181,6 +186,27 @@ public sealed partial class FloorRunner : Node2D
             var data = GD.Load<WeaponData>(path);
             if (data is not null) _player.GiveWeapon(data);
         }
+
+        BuildCircle();
+    }
+
+    /// <summary>
+    /// docs/04 §2.2, §2.3 — the run's Circle: a fixed Heart, and three ley lines whose
+    /// TYPES are rolled per run.
+    ///
+    /// Rolling the leys from the run seed rather than fixing them is what stops an optimal
+    /// layout being copied between runs: the same set of sigils wants a different
+    /// arrangement when the cross is Blood/Salt than when it is Ash/Gate.
+    /// </summary>
+    private void BuildCircle()
+    {
+        _player.Circle.RollLeyLines(Hash.Derive(GameRoot.Instance.RunSeed, "ley_lines"));
+
+        var heart = GD.Load<Sigils.SigilData>("res://data/sigils/heart_steady_pulse.tres");
+        if (heart is not null) _player.Circle.SetHeart(heart);
+
+        _player.OnSigilsChanged();
+        _player.OnFloorBegan();
     }
 
     private void BuildCameraAndUi()
@@ -198,6 +224,9 @@ public sealed partial class FloorRunner : Node2D
         _hud = new Hud { Name = nameof(Hud), Player = _player };
         layer.AddChild(_hud);
         layer.AddChild(new Minimap { Name = nameof(Minimap), Floor = _floor, Player = _player, Cleared = _clearedRooms });
+
+        _reverie = new UI.ReverieScreen { Name = nameof(UI.ReverieScreen), Player = _player };
+        layer.AddChild(_reverie);
         AddChild(layer);
 
         AddChild(new Debug.DebugOverlay
@@ -207,6 +236,20 @@ public sealed partial class FloorRunner : Node2D
             PlayerBulletManagerPath = _playerBullets.GetPath(),
             PlayerPath = _player.GetPath(),
         });
+    }
+
+    private void BuildRoomContent()
+    {
+        _content = new RoomContent
+        {
+            Name = nameof(RoomContent),
+            Player = _player,
+            Pickups = _pickups,
+            Reverie = _reverie,
+            FloorIndex = 1,
+            ZIndex = 5,
+        };
+        AddChild(_content);
     }
 
     // ---------------------------------------------------------------- Tick
@@ -234,9 +277,35 @@ public sealed partial class FloorRunner : Node2D
         if (_encounterActive && _enemies.AliveCount == 0) ClearRoom();
         if (_player.IsDead) OnDeath();
 
+        HandleReverie();
+
         QueueRedraw();
         HandleDebugKeys();
         TickScreenshot();
+    }
+
+    /// <summary>
+    /// docs/04 §7 — Reverie opens on Tab, pauses the game, and is unavailable while doors
+    /// are sealed.
+    ///
+    /// The combat gate is the load-bearing half. A player who can rearrange their Circle
+    /// mid-fight is making the build decision with the enemy composition and their current
+    /// Sanity already on screen, which is a strictly better decision than the one the
+    /// system is balanced around — and it would also let them use the pause to read a
+    /// bullet pattern.
+    /// </summary>
+    private void HandleReverie()
+    {
+        _reverie.CanOpen = !_encounterActive && _doorSeals.Count == 0;
+
+        if (!Input.IsActionJustPressed("reverie")) return;
+
+        if (!_reverie.IsOpen && !_reverie.CanOpen)
+        {
+            GD.Print("[Reverie] not while the doors are sealed.");
+            return;
+        }
+        _reverie.Toggle();
     }
 
     /// <summary>
@@ -330,6 +399,15 @@ public sealed partial class FloorRunner : Node2D
         foreach (PlacedRoom r in _floor.Rooms) if (r.NodeId == nodeId) { room = r; break; }
         if (room is null) return;
 
+        _player.OnRoomBegan();
+        _hitsAtRoomStart = _player.HitsTaken;
+
+        // Furniture is placed on entry, cleared and re-placed on every room change. The
+        // room's own seed makes that idempotent: walking back into a shop finds the same
+        // stock, at the same prices, with whatever was bought still gone.
+        _content.EnterRoom(room, _geometry.RoomRectWorld(room).Grow(-40f),
+                           Hash.Derive(GameRoot.Instance.RunSeed, "room_content", nodeId));
+
         if (_clearedRooms.Contains(nodeId)) return;
         if (!IsCombatRole(room.Role)) { _clearedRooms.Add(nodeId); OnNonCombatRoom(room); return; }
 
@@ -341,10 +419,8 @@ public sealed partial class FloorRunner : Node2D
 
     private void OnNonCombatRoom(PlacedRoom room)
     {
-        // Reward/shop/shrine content is M2 proper; for now the room announces itself so
-        // route choice is legible while walking the floor.
         if (room.Role is RoomRole.Reward or RoomRole.Shop or RoomRole.Shrine or RoomRole.Secret)
-            GD.Print($"[{room.Role}] {room.Template.Id} — contents are M2.");
+            GD.Print($"[{room.Role}] {room.Template.Id} — {_content.Items.Count} things to interact with.");
     }
 
     /// <summary>
@@ -422,6 +498,26 @@ public sealed partial class FloorRunner : Node2D
         _drops.RollRoomClear(_pickups, _player.GlobalPosition, _rng, 1,
                              _player.Keys, _player.TotalReserveFraction(), headroom);
 
+        // The Ledger of Names (docs/04 §5.5) — gold for a room cleared without being hit.
+        // Measured against the count at room entry rather than a flag, so the Elder Sign's
+        // negated hit correctly still counts as a clean room and armour absorbing one does not.
+        int clean = _player.Circle.Effects.GoldPerCleanRoom;
+        if (clean > 0 && _player.HitsTaken == _hitsAtRoomStart)
+        {
+            _player.AddGold(clean);
+            GD.Print($"[Ledger of Names] clean clear — +{clean} gold.");
+        }
+
+        // A chest for a hard-won room. docs/08 §4 puts chests behind combat; a hard room
+        // that pays the same as an easy one makes the route choice a pure risk with no
+        // corresponding reward.
+        if (room is not null && room.Role is RoomRole.CombatHard or RoomRole.CombatMed)
+        {
+            bool locked = room.Role == RoomRole.CombatHard;
+            _content.AddChest(_player.GlobalPosition + new Vector2(0f, -40f),
+                              tier: locked ? 3 : 1, keyCost: locked ? 1 : 0, _rng);
+        }
+
         Weapon w = _player.Weapons.Active;
         _telemetry.EndRoom(_player.Sanity, _player.Weapons.ReloadsAttempted,
                            _player.Weapons.ReloadsDenied, w.PerfectRecitations, w.FailedRecitations);
@@ -498,9 +594,12 @@ public sealed partial class FloorRunner : Node2D
         _currentRoom = -1;
         _roomsCleared = 0;
         _drops.ResetForRun();
+        _content.ResetForRun();
+        if (_reverie.IsOpen) _reverie.Close();
 
         PlacedRoom entrance = _floor.FindRole(RoomRole.Entrance)!;
         _player.ResetForTest(_geometry.RoomCentreWorld(entrance));
+        BuildCircle();
         EnterRoom(entrance.NodeId);
     }
 
@@ -519,6 +618,8 @@ public sealed partial class FloorRunner : Node2D
     private int _screenshotAfter = 40;
     private bool _meleeDemo;
     private bool _combatDemo;
+    private string _roomDemo = "";
+    private bool _reverieDemo;
     private int _frameCount;
 
     private void ParseScreenshotArgs()
@@ -530,6 +631,8 @@ public sealed partial class FloorRunner : Node2D
                 _screenshotAfter = int.TryParse(arg["--screenshot-after=".Length..], out int n) ? n : 40;
             else if (arg == "--melee-demo") _meleeDemo = true;
             else if (arg == "--combat-demo") _combatDemo = true;
+            else if (arg.StartsWith("--room-demo=")) _roomDemo = arg["--room-demo=".Length..];
+            else if (arg == "--reverie-demo") _reverieDemo = true;
         }
     }
 
@@ -542,7 +645,13 @@ public sealed partial class FloorRunner : Node2D
         // produced "one shot fired" and been mistaken for a fault — at 4.5 rounds/sec that
         // is simply the correct number. The window must span several fire cycles or the
         // test cannot distinguish a broken gun from a fast one.
-        if (_frameCount == 30)
+        // Room-content and Reverie captures. Both are cases the headless gates cannot see
+        // at all: a shop with no stock drawn and an inventory screen that renders nothing
+        // both pass every assertion in the project while being completely broken on screen.
+        if (_frameCount == 20 && _roomDemo.Length > 0) TeleportToRole(_roomDemo);
+        if (_frameCount == 24 && _reverieDemo) OpenReverieWithSample();
+
+        if (_frameCount == 30 && _roomDemo.Length == 0 && !_reverieDemo)
         {
             // Hold FIRE and let the real weapon path run. Spawning bullets by hand only
             // proved the renderer works; it could not tell us whether the gun does.
@@ -598,6 +707,15 @@ public sealed partial class FloorRunner : Node2D
 
         if (_frameCount != _screenshotAfter) return;
 
+        if (_roomDemo.Length > 0 || _reverieDemo)
+        {
+            Image shot = GetViewport().GetTexture().GetImage();
+            Error e = shot.SavePng(_screenshotPath);
+            GD.Print($"[screenshot] {_screenshotPath} → {e}");
+            GetTree().Quit(e == Error.Ok ? 0 : 1);
+            return;
+        }
+
         // Fire EVERY carried weapon in turn and report what each produced. "I can't see my
         // bullets" is weapon-specific far more often than it is renderer-specific, and
         // testing only the starter would have missed that entirely.
@@ -625,6 +743,80 @@ public sealed partial class FloorRunner : Node2D
         Error err = img.SavePng(_screenshotPath);
         GD.Print($"[screenshot] {_screenshotPath} → {err}");
         GetTree().Quit(err == Error.Ok ? 0 : 1);
+    }
+
+    /// <summary>Drop the player into the first room of a given role, for a capture.</summary>
+    private void TeleportToRole(string roleName)
+    {
+        if (!System.Enum.TryParse(roleName, ignoreCase: true, out RoomRole role))
+        {
+            GD.PrintErr($"[screenshot] unknown room role '{roleName}'");
+            return;
+        }
+
+        PlacedRoom? room = _floor.FindRole(role);
+        if (room is null) { GD.PrintErr($"[screenshot] this floor has no {role} room"); return; }
+
+        // Enough gold and keys to see the prices being met rather than refused — a shop
+        // rendered entirely in "cannot afford" is not a useful picture of a shop.
+        _player.AddGold(600);
+        _player.AddKeys(3);
+
+        _player.GlobalPosition = _geometry.RoomCentreWorld(room);
+        EnterRoom(room.NodeId);
+
+        // Stand ON something, so the capture shows the prompt as well as the furniture —
+        // an untriggered prompt is precisely the part most likely to be silently broken.
+        if (_content.Items.Count > 0) _player.GlobalPosition = _content.Items[0].Position + new Vector2(0f, 14f);
+
+        // The camera smooths toward the player, so a teleport leaves it a room behind for
+        // most of a capture window. Snap it.
+        _camera.ResetSmoothing();
+        HideOverlayForCapture();
+
+        GD.Print($"[screenshot] {role} — {room.Template.Id}, {_content.Items.Count} interactables");
+        foreach (Interactable it in _content.Items) GD.Print($"    {it.Prompt()}");
+    }
+
+    /// <summary>The F3 overlay covers most of a 640x360 frame, which is fine when the thing
+    /// being checked is a counter and useless when it is a room.</summary>
+    private void HideOverlayForCapture()
+    {
+        // A CanvasLayer, NOT a CanvasItem — the first version of this tested for CanvasItem
+        // and silently did nothing, which is exactly the sort of no-op the capture harness
+        // exists to make visible.
+        if (GetNodeOrNull(nameof(Debug.DebugOverlay)) is CanvasLayer overlay) overlay.Visible = false;
+    }
+
+    /// <summary>Fill a Circle and open Reverie, so a capture shows a populated grid rather
+    /// than an empty one.</summary>
+    private void OpenReverieWithSample()
+    {
+        foreach (string id in new[] { "bloodletters_nail", "salt_ward", "brine_knot", "elder_sign" })
+        {
+            Sigils.SigilData? s = Sigils.SigilPool.ById(id);
+            if (s is not null) _player.Circle.AddToReliquary(s);
+        }
+
+        // Place two by hand next to the Heart so the capture shows synergy arcs and ley
+        // occupancy, and leave two in the Reliquary so the tray is not empty either.
+        Sigils.SigilData? nail = Sigils.SigilPool.ById("bloodletters_nail");
+        Sigils.SigilData? ward = Sigils.SigilPool.ById("salt_ward");
+        if (nail is not null) _player.Circle.Place(nail, new Vector2I(2, 3), 0, false, out _);
+        if (ward is not null) _player.Circle.Place(ward, new Vector2I(3, 2), 1, false, out _);
+
+        _player.OnSigilsChanged();
+        HideOverlayForCapture();
+        _reverie.CanOpen = true;
+        _reverie.Open();
+
+        // Opening Reverie pauses the tree, which stops THIS node ticking — so the capture
+        // frame never arrives and the harness hangs until --quit-after. Release the pause
+        // for the capture only. The screen still renders exactly as it does in play; it is
+        // the surrounding simulation that is allowed to keep running for a few frames.
+        GetTree().Paused = false;
+
+        GD.Print($"[screenshot] reverie — {_player.Circle.Summary()}");
     }
 
     /// <summary>Engine.TimeScale is global state. Leaving a scene mid-hit-stop would

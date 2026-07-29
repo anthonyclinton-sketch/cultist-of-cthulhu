@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="InscriptionData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Weapons/InscriptionData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+Id = "the_unblinking_eye"
+DisplayName = "The Unblinking Eye"
+Tier = 2
+RulesText = "+60% damage. You take 25% more damage."
+BaseGoldCost = 130
+CorruptionOnApply = 1
+DamageBonus = 0.6
+IncomingDamageBonus = 0.25

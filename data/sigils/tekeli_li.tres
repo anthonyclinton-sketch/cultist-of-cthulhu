@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="SigilData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Sigils/SigilData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+Id = "tekeli_li"
+DisplayName = "Tekeli-li"
+Tier = 1
+Shape = 1
+Directional = true
+CodexText = "Two notes, piped. Every creature that has heard them repeats them, and none of them know why."
+RulesText = "Blink Step travels 2 units further in the faced direction."
+Offers = 2
+Wants = 8
+LeyAffinity = 0
+BlinkDistanceUnits = 2.0

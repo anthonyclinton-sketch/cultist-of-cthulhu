@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SigilData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Sigils/SigilData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+Id = "salt_ward"
+DisplayName = "Salt Ward"
+Tier = 1
+Shape = 1
+CodexText = "A line of coarse salt, laid by a grandmother who was not superstitious and simply knew what came up the beach."
+RulesText = "Taking damage costs half the usual Sanity, 5 instead of 10."
+Offers = 8
+Wants = 32
+LeyAffinity = 2
+HitSanityCostMultiplier = 0.5

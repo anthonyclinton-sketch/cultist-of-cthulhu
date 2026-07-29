@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SigilData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Sigils/SigilData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+Id = "elder_sign"
+DisplayName = "Elder Sign"
+Tier = 3
+Shape = 6
+CodexText = "A branch, five-limbed, with an eye burned into the centre. Nobody agrees on the shape and it works anyway, which suggests the shape was never the point."
+RulesText = "Once per room, a hit that would kill you is negated instead."
+Offers = 4
+Wants = 8
+LeyAffinity = 2
+NegateLethalOncePerRoom = true

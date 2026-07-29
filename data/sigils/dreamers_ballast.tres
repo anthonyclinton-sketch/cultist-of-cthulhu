@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="SigilData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Sigils/SigilData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+Id = "dreamers_ballast"
+DisplayName = "Dreamer's Ballast"
+Tier = 3
+Shape = 4
+CodexText = "Lead shot sewn into a sleeping cap. It does not keep you down. It makes the coming back cheaper."
+RulesText = "Ascension lasts 8 seconds longer and its exit heart cost is halved. It is never free."
+Offers = 16
+Wants = 64
+LeyAffinity = 0
+AscensionDurationBonus = 8.0
+AscensionHeartCostMultiplier = 0.5

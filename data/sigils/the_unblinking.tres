@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="SigilData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Sigils/SigilData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+Id = "the_unblinking"
+DisplayName = "The Unblinking"
+Tier = 4
+Shape = 6
+CodexText = "You will find you no longer need to. You will find, later, that you no longer can."
+RulesText = "Blink Step costs a third as much Sanity. Each one adds +0.25 Corruption."
+Offers = 8
+Wants = 16
+LeyAffinity = 0
+BlinkCostMultiplier = 0.333
+CorruptionPerBlink = 0.25

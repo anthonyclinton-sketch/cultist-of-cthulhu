@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="InscriptionData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Weapons/InscriptionData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+Id = "hoarders_mark"
+DisplayName = "Hoarder's Mark"
+Tier = 0
+RulesText = "+50% reserve ammunition."
+RequiresAmmo = true
+BaseGoldCost = 45
+ReserveMultiplier = 1.5

@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="InscriptionData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Weapons/InscriptionData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+Id = "swift_etching"
+DisplayName = "Swift Etching"
+Tier = 0
+RulesText = "+18% fire rate."
+BaseGoldCost = 45
+FireRateBonus = 0.18

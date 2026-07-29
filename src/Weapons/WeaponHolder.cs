@@ -50,9 +50,29 @@ public sealed class WeaponHolder
         _active = (_active + 1) % _weapons.Count;
     }
 
+    /// <summary>
+    /// Loadout modifiers, pushed down to every carried weapon each tick.
+    ///
+    /// Set by the player rather than read from the Sigil Circle here, because two of the
+    /// three are CONDITIONAL on player state the holder cannot see — the low-health bonus
+    /// and Corruption scaling both depend on the player, and a weapon asking the circle
+    /// directly would get the unconditional number and be quietly wrong exactly when the
+    /// sigil is supposed to matter.
+    /// </summary>
+    public float DamageMultiplier { get; set; } = 1f;
+    public float FireRateMultiplier { get; set; } = 1f;
+    public float PerfectRefundBonus { get; set; }
+
     public void Tick(float dt)
     {
-        for (int i = 0; i < _weapons.Count; i++) _weapons[i].Tick(dt);
+        for (int i = 0; i < _weapons.Count; i++)
+        {
+            Weapon w = _weapons[i];
+            w.DamageMultiplier = DamageMultiplier;
+            w.FireRateMultiplier = FireRateMultiplier;
+            w.PerfectRefundBonus = PerfectRefundBonus;
+            w.Tick(dt);
+        }
 
         _meleeBudgetResetTimer -= dt;
         if (_meleeBudgetResetTimer <= 0f)
@@ -78,7 +98,7 @@ public sealed class WeaponHolder
 
             int struck = enemies.ResolveMeleeArc(
                 origin, aim, w.Data.MeleeReach, w.Data.MeleeArcDegrees,
-                w.Data.Damage, w.Data.MeleeKnockback);
+                w.EffectiveDamage, w.Data.MeleeKnockback);
 
             if (struck > 0)
             {

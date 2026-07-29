@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="SigilData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Sigils/SigilData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+Id = "deep_ones_gill"
+DisplayName = "Deep One's Gill"
+Tier = 3
+Shape = 3
+CodexText = "It works. That is the trouble with it. It works whether or not there is water, and it prefers there to be."
+RulesText = "After 4 seconds without dodging, reloading or Banishing, Sanity trickles back at 3/s until you spend again."
+Offers = 2
+Wants = 8
+LeyAffinity = 0
+LullRegenPerSecond = 3.0
+LullDelaySeconds = 4.0

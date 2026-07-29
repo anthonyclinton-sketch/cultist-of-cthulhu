@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SigilData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Sigils/SigilData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+Id = "bone_lattice"
+DisplayName = "Bone Lattice"
+Tier = 2
+Shape = 3
+CodexText = "A cage of finger bones, grown rather than assembled. It fits whoever wears it, which is the unpleasant part."
+RulesText = "+1 armour at the start of each floor."
+Offers = 32
+Wants = 1
+LeyAffinity = 2
+ArmourPerFloor = 1

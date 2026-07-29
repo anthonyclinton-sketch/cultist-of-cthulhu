@@ -26,6 +26,13 @@ public sealed partial class PlayerController : CharacterBody2D
     public AscensionController Ascension { get; } = new();
     public Telemetry? Telemetry { get; set; }
 
+    /// <summary>
+    /// docs/04 — the Sigil Circle. Owned by the player because it is the player's build:
+    /// it survives floors, it is what the Reverie screen edits, and every one of its
+    /// effects lands on something in this class or something this class publishes.
+    /// </summary>
+    public Sigils.SigilCircle Circle { get; } = new();
+
     /// <summary>docs/02 §7. The threshold EFFECTS are M3; this counter exists now so that
     /// Ascension's cost is actually recorded rather than silently dropped.</summary>
     public float Corruption { get; private set; }
@@ -101,6 +108,124 @@ public sealed partial class PlayerController : CharacterBody2D
     /// <summary>Remaining post-damage invulnerability, for the 12Hz flash (docs/02 §2).</summary>
     public float DamageIFramesRemaining => _damageIFrames;
 
+    // ================================================================ Sigils
+    //
+    // Everything below is the seam between docs/04 and the rest of the player. The rule
+    // being kept: nothing in this class walks the Circle. It reads the flat effect block,
+    // and it recomputes derived state exactly once, when the layout changes.
+
+    /// <summary>Ascension's permanent max-Sanity debt, accumulated across the run.
+    /// Tracked separately so that re-deriving Max from the Circle cannot refund it.</summary>
+    private float _maxSanityPenalty;
+
+    /// <summary>Max Sanity granted from outside the Circle — the Altar of Nodens, and later
+    /// Unbroken Seals. Held here rather than pushed into SigilEffects because that block is
+    /// rebuilt from scratch on every placement and would silently discard it.</summary>
+    private float _bonusMaxSanity;
+
+    public void GrantMaxSanity(float amount)
+    {
+        _bonusMaxSanity += amount;
+        OnSigilsChanged();
+    }
+
+    /// <summary>Permanently give up a heart container for this run (docs/08 §5, Altar of
+    /// Nodens). Floored at one, the same floor Ascension's debt rule respects.</summary>
+    public void SpendHeartContainer()
+    {
+        MaxHearts = Mathf.Max(Tune.AscensionMinContainers, MaxHearts - 1f);
+        Hearts = Mathf.Min(Hearts, MaxHearts);
+    }
+
+    /// <summary>Elder Sign — one lethal hit negated per room (docs/04 §5.3).</summary>
+    private bool _lethalNegationSpent;
+
+    /// <summary>Seconds since the player last spent Sanity, for the Deep One's Gill lull.</summary>
+    private float _timeSinceSanitySpend;
+
+    /// <summary>
+    /// Re-derive everything the Circle governs. Call after any placement, removal or
+    /// floor transition — never per tick.
+    ///
+    /// Max Sanity is recomputed from base + bonus − accumulated Ascension debt rather than
+    /// adjusted incrementally. Adjusting it would mean every path that changes either
+    /// input has to know about the other, and the failure mode is silent: a player who
+    /// Ascends and then rearranges their Circle gets their permanent penalty refunded.
+    /// </summary>
+    public void OnSigilsChanged()
+    {
+        Sigils.SigilEffects e = Circle.Effects;
+
+        float target = Mathf.Max(Tune.AscensionMaxSanityFloor,
+                                 Tune.SanityMax + e.MaxSanityBonus + _bonusMaxSanity - _maxSanityPenalty);
+        Sanity.SetMax(target);
+
+        Ascension.DurationBonus = e.AscensionDurationBonus;
+        Ascension.HeartCostMultiplier = e.AscensionHeartCostMultiplier;
+
+        Weapons.PerfectRefundBonus = e.PerfectRefundBonus;
+    }
+
+    /// <summary>
+    /// Outgoing damage right now, including the two bonuses that depend on player state
+    /// and therefore cannot live on the weapon: the low-health bonus and Corruption
+    /// scaling (docs/04 §5.1, §5.4).
+    /// </summary>
+    public float OutgoingDamageMultiplier
+    {
+        get
+        {
+            Sigils.SigilEffects e = Circle.Effects;
+            bool lowHealth = Hearts <= MaxHearts * 0.5f;
+
+            float m = e.DamageMultiplier;
+            if (lowHealth) m += e.LowHealthDamageBonus;
+            m += e.DamagePerCorruption * Corruption;
+
+            // The ACTIVE weapon's inscriptions, because only the active weapon fires.
+            // Sanguine Etching and Sovereign's Mark are per-weapon by design (docs/03 §3) —
+            // an inscription is etched onto one gun, so it must not buff the other two.
+            if (Weapons.Count > 0)
+            {
+                Weapon w = Weapons.Active;
+                if (lowHealth) m += w.LowHealthDamageBonus;
+                m += w.DamagePerCorruption * Corruption;
+            }
+
+            return m;
+        }
+    }
+
+    /// <summary>Called by the room owner when a new room begins. Rearms the Elder Sign.</summary>
+    public void OnRoomBegan() => _lethalNegationSpent = false;
+
+    /// <summary>Start-of-floor sigil payouts (docs/04 §5.3, §5.5).</summary>
+    public void OnFloorBegan()
+    {
+        Sigils.SigilEffects e = Circle.Effects;
+        if (e.ArmourPerFloor > 0) Armour = Mathf.Min(Tune.MaxArmour, Armour + e.ArmourPerFloor);
+        if (e.KeysPerFloor > 0) Keys += e.KeysPerFloor;
+    }
+
+    public void AddGold(int amount) => Gold += Mathf.Max(0, amount);
+    public void AddKeys(int amount) => Keys += Mathf.Max(0, amount);
+    public void AddCorruption(float amount) => Corruption += amount;
+
+    /// <summary>Spend gold. Returns false and spends nothing if it cannot be paid.</summary>
+    public bool TrySpendGold(int amount)
+    {
+        if (amount < 0 || Gold < amount) return false;
+        Gold -= amount;
+        return true;
+    }
+
+    public bool TrySpendKeys(int amount)
+    {
+        if (amount < 0 || Keys < amount) return false;
+        Keys -= amount;
+        return true;
+    }
+
     public void GiveWeapon(WeaponData data) => Weapons.Add(data);
 
     /// <summary>Test hook: kill the player outright, with a pending hit stop set as the
@@ -141,6 +266,8 @@ public sealed partial class PlayerController : CharacterBody2D
 
         _timeSinceLastKill += dt;
         if (_timeSinceLastKill > ChainWindow) _chainStep = 0;
+
+        TickLullRegen(dt);
 
         // Trauma decays in REAL time. Decaying it by the scaled delta meant screen shake
         // persisted 20x longer through a hit stop, so the two effects compounded into what
@@ -209,7 +336,8 @@ public sealed partial class PlayerController : CharacterBody2D
 
         if (Pickups.CollectedHearts > 0f) Heal(Pickups.CollectedHearts);
         if (Pickups.CollectedArmour > 0) Armour = Mathf.Min(Tune.MaxArmour, Armour + Pickups.CollectedArmour);
-        if (Pickups.CollectedGold > 0) Gold += Pickups.CollectedGold;
+        if (Pickups.CollectedGold > 0)
+            Gold += Mathf.RoundToInt(Pickups.CollectedGold * Circle.Effects.GoldMultiplier);
         if (Pickups.CollectedKeys > 0) Keys += Pickups.CollectedKeys;
 
         if (Pickups.CollectedAmmo > 0)
@@ -381,6 +509,7 @@ public sealed partial class PlayerController : CharacterBody2D
         }
 
         Corruption += Tune.AscensionCorruption;
+        _maxSanityPenalty += Ascension.LastMaxSanityPenalty;
         _damageIFrames = 1.2f;   // brief grace so the exit is not instantly lethal
 
         GD.Print($"[Ascension end] −{heartsToDeduct:F1} hearts" +
@@ -425,7 +554,7 @@ public sealed partial class PlayerController : CharacterBody2D
     {
         Vector2 input = ReadMoveInput();
 
-        float speed = Tune.PlayerMoveSpeed * Sanity.MoveSpeedMultiplier;
+        float speed = Tune.PlayerMoveSpeed * Sanity.MoveSpeedMultiplier * Circle.Effects.MoveSpeedMultiplier;
         if (Input.IsActionPressed("fire")) speed *= Tune.PlayerFiringSpeedMult;
 
         Vector2 target = input * speed;
@@ -452,12 +581,22 @@ public sealed partial class PlayerController : CharacterBody2D
         if (_blinkCooldown > 0f) return;
 
         // Cost is 0 by default; the call is kept so flipping Tune.SanityBlinkCost to 18
-        // restores the metered variant (Build B) with no code change.
-        if (Tune.SanityBlinkCost > 0f && !Sanity.TrySpend(Tune.SanityBlinkCost))
+        // restores the metered variant (Build B) with no code change. The sigil discount
+        // multiplies it and can never reach zero (docs/04 §8.6) — though with Build A's
+        // free dodge it only bites in the control arm, which is the correct behaviour:
+        // The Unblinking is a Build B sigil that happens to also exist in Build A.
+        float blinkCost = Tune.SanityBlinkCost * Circle.Effects.BlinkCostMultiplier;
+        if (blinkCost > 0f && !Sanity.TrySpend(blinkCost))
         {
             DeniedBlinkCount++;
             return;
         }
+        if (blinkCost > 0f) NoteSanitySpend();
+
+        // The Unblinking's price. Charged per dodge whether or not the dodge cost Sanity —
+        // the tile buys a cheaper dodge and is paid for in Corruption, and in Build A where
+        // the dodge is already free that is ALL it does.
+        if (Circle.Effects.CorruptionPerBlink > 0f) Corruption += Circle.Effects.CorruptionPerBlink;
 
         Vector2 dir = ReadMoveInput();
         if (dir.LengthSquared() < 0.01f) dir = AimDirection;
@@ -470,7 +609,20 @@ public sealed partial class PlayerController : CharacterBody2D
         // move-speed modifiers (the Unravelled band's +10%, and any future mobility
         // sigil). Distance is therefore derived from the frame data rather than authored
         // — see Tune.BlinkEffectiveDistance for why the old authored value was wrong.
-        float dashSpeed = Tune.PlayerMoveSpeed * Tune.BlinkSpeedMultiplier * Sanity.MoveSpeedMultiplier;
+        float dashSpeed = Tune.PlayerMoveSpeed * Tune.BlinkSpeedMultiplier
+                          * Sanity.MoveSpeedMultiplier * Circle.Effects.MoveSpeedMultiplier;
+
+        // Tekeli-li adds DISTANCE, which at fixed frame data means adding speed. Converting
+        // through the dash's own duration keeps the authored number honest — "+2 units" has
+        // to mean two units on the floor, not two units of some intermediate quantity.
+        float extraUnits = Circle.Effects.BlinkDistanceUnits;
+        if (extraUnits > 0f)
+        {
+            float duration = (Tune.BlinkStartupFrames + Tune.BlinkInvulnFrames) / 60f
+                             + Tune.BlinkRecoveryFrames / 60f * Tune.BlinkRecoveryMoveMult;
+            dashSpeed += Tune.Units(extraUnits) / Mathf.Max(0.01f, duration);
+        }
+
         _blinkVelocity = dir * dashSpeed;
         _smoothedVelocity = _blinkVelocity;
     }
@@ -537,6 +689,7 @@ public sealed partial class PlayerController : CharacterBody2D
         {
             int deniedBefore = Weapons.ReloadsDenied;
             Weapons.TryRecite(Sanity);
+            NoteSanitySpend();
             if (Weapons.ReloadsDenied > deniedBefore)
             {
                 DeniedSustainCount++;
@@ -545,7 +698,9 @@ public sealed partial class PlayerController : CharacterBody2D
         }
 
         int autoDeniedBefore = Weapons.ReloadsDenied;
+        int autoAttemptedBefore = Weapons.ReloadsAttempted;
         Weapons.TickAutoReload(dt, Sanity, ref _autoReloadDelay);
+        if (Weapons.ReloadsAttempted > autoAttemptedBefore) NoteSanitySpend();
         if (Weapons.ReloadsDenied > autoDeniedBefore)
         {
             DeniedSustainCount++;
@@ -602,6 +757,7 @@ public sealed partial class PlayerController : CharacterBody2D
 
         _banishCooldown = Tune.BanishCooldown;
         Telemetry?.NoteSanitySpend(Tune.SanityBanishCost);
+        NoteSanitySpend();
 
         BulletsCleared = EnemyBullets?.ClearRadius(GlobalPosition, Tune.BanishRadius) ?? 0;
         EnemiesStunned = Enemies?.ApplyBanish(GlobalPosition, Tune.BanishRadius,
@@ -663,6 +819,13 @@ public sealed partial class PlayerController : CharacterBody2D
             _timeSinceLastKill = 0f;
 
             value += Mathf.Min(_chainStep * ChainBonusPerStep, ChainBonusCap);
+
+            // Sigil kill income is added BEFORE the i-frame doubling, so a Circle built
+            // around kill Sanity rewards the high-skill line rather than being flat income
+            // bolted on beside it (docs/02 §3.3).
+            value += Circle.Effects.KillSanityBonus;
+            if (Weapons.Count > 0) value += Weapons.Active.KillSanityBonus;   // Yellow Ink
+
             if (duringIFrames) value *= 2f;
 
             total += value;
@@ -681,6 +844,28 @@ public sealed partial class PlayerController : CharacterBody2D
         PendingHitStop = HitStop.ForKills(kills);
         AddTrauma(0.16f + 0.03f * kills);
     }
+
+    /// <summary>
+    /// Deep One's Gill (docs/04 §5.2). Pays only during a LULL — several seconds without
+    /// dodging, reloading or Banishing.
+    ///
+    /// The condition is the entire sigil. Pillar I (docs/01 §2) lists passive in-combat
+    /// regeneration as one of the things the game exists to remove, and the original flat
+    /// version of this tile roughly doubled a room's Sanity budget on its own. Gating it on
+    /// not spending turns it into a reward for clean positioning: the moment you dodge,
+    /// reload or Banish, it stops and the clock restarts.
+    /// </summary>
+    private void TickLullRegen(float dt)
+    {
+        float rate = Circle.Effects.LullRegenPerSecond;
+        if (rate <= 0f) { _timeSinceSanitySpend = 0f; return; }
+
+        _timeSinceSanitySpend += dt;
+        if (_timeSinceSanitySpend >= Circle.Effects.LullDelaySeconds) Sanity.GainTrickle(rate * dt);
+    }
+
+    /// <summary>Any Pillar-I spend restarts the lull clock.</summary>
+    private void NoteSanitySpend() => _timeSinceSanitySpend = 0f;
 
     private const float ChainWindow = 1.5f;
     private const float ChainBonusPerStep = 2f;
@@ -705,7 +890,13 @@ public sealed partial class PlayerController : CharacterBody2D
         {
             Enemies.PlayerPosition = GlobalPosition;
             Enemies.PlayerVelocity = Velocity;
+            Enemies.ExecuteDamageBonus = Circle.Effects.ExecuteDamageBonus;
         }
+
+        // Republished every tick rather than on placement, because two of the three inputs
+        // — health and Corruption — change during a fight.
+        Weapons.DamageMultiplier = OutgoingDamageMultiplier;
+        Weapons.FireRateMultiplier = Circle.Effects.FireRateMultiplier;
     }
 
     private void ConsumeIncomingHits()
@@ -726,6 +917,23 @@ public sealed partial class PlayerController : CharacterBody2D
 
     private void TakeHit(float hearts)
     {
+        // ELDER SIGN (docs/04 §5.3) — once per room, a hit that would kill you does not.
+        //
+        // Checked BEFORE armour, and before HitsTaken is incremented. Armour absorbs the
+        // hit entirely and would consume the save for nothing; and a negated lethal hit is
+        // not a hit taken, which matters because HitsTaken feeds the no-damage room clear
+        // and the M1 metrics.
+        if (Circle.Effects.NegateLethalOncePerRoom && !_lethalNegationSpent
+            && Armour <= 0 && Hearts - hearts <= 0f)
+        {
+            _lethalNegationSpent = true;
+            _damageIFrames = 1.2f;
+            AddTrauma(0.6f);
+            PendingHitStop = HitStop.PlayerDamaged;
+            GD.Print("[Elder Sign] a lethal hit was negated.");
+            return;
+        }
+
         HitsTaken++;
         _damageIFrames = 1.0f;
         PendingHitStop = HitStop.PlayerDamaged;
@@ -745,10 +953,14 @@ public sealed partial class PlayerController : CharacterBody2D
             return;
         }
 
-        Hearts = Mathf.Max(0f, Hearts - hearts);
+        Hearts = Mathf.Max(0f, Hearts - ApplyIncomingDamageBonus(hearts));
+
+        // Salt Ward halves this and nothing removes it — it is one of the two mechanisms
+        // that punish both extremes (docs/02 §3.3), so docs/04 §8.6 allows a discount only.
+        float sanityCost = Tune.SanityHitCost * Circle.Effects.HitSanityCostMultiplier;
 
         Telemetry?.NoteHitTaken();
-        Telemetry?.NoteSanitySpend(Tune.SanityHitCost);
+        Telemetry?.NoteSanitySpend(sanityCost);
 
         // Damage compounds: being hit also costs Sanity, so you get hit and then cannot
         // afford to reload. One of the two mechanisms that punish both extremes.
@@ -756,9 +968,35 @@ public sealed partial class PlayerController : CharacterBody2D
         // Note this does NOT start Ascension. Drain latches the trigger inside
         // SanitySystem and the poll at the top of _PhysicsProcess starts it, so being hit
         // to zero and spending to zero go through exactly the same path.
-        Sanity.Drain(Tune.SanityHitCost);
+        Sanity.Drain(sanityCost);
+        NoteSanitySpend();
 
         if (IsDead) EmitSignal(SignalName.Died);
+    }
+
+    /// <summary>
+    /// The Unblinking Eye's drawback (docs/03 §3.3): +25% damage taken.
+    ///
+    /// Health is authored in HALF HEARTS and the design is explicit that hits are events
+    /// rather than chip damage (docs/02 §2). A naive multiply gives 0.625 of a heart, which
+    /// either renders as a broken heart icon or rounds back to 0.5 and makes the drawback
+    /// imaginary. Accumulating the excess and spending it a half-heart at a time preserves
+    /// both: the arithmetic is exactly +25% over a run, and the player reads it as "every
+    /// fourth hit hurts twice as much", which is a rule they can actually feel.
+    /// </summary>
+    private float _damageOverflow;
+
+    private float ApplyIncomingDamageBonus(float hearts)
+    {
+        float bonus = 0f;
+        foreach (Weapon w in Weapons.Weapons) bonus += w.IncomingDamageBonus;
+        if (bonus <= 0f) return hearts;
+
+        _damageOverflow += hearts * bonus;
+        if (_damageOverflow < 0.5f) return hearts;
+
+        _damageOverflow -= 0.5f;
+        return hearts + 0.5f;
     }
 
     public void Heal(float hearts) => Hearts = Mathf.Min(MaxHearts, Hearts + hearts);
@@ -784,13 +1022,20 @@ public sealed partial class PlayerController : CharacterBody2D
         Keys = 0;
         CandlesCollected = 0;
         Ascension.ResetForRun();
+        Circle.ResetForRun();
         Sanity.Suspended = false;
 
         // Sanity and the Lucid Ceiling must reset too, or a new run inherits the previous
         // run's descent — the next attempt would start mid-ladder and every metric keyed
         // to time-in-band would be quietly wrong.
-        Sanity.SetMax(Tune.SanityMax);
-        Sanity.DebugSetCurrent(Tune.SanityMax);
+        _maxSanityPenalty = 0f;
+        _bonusMaxSanity = 0f;
+        _damageOverflow = 0f;
+        _lethalNegationSpent = false;
+        _timeSinceSanitySpend = 0f;
+
+        OnSigilsChanged();
+        Sanity.DebugSetCurrent(Sanity.Max);
         Sanity.ResetCeiling();
     }
 }

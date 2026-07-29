@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="InscriptionData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Weapons/InscriptionData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+Id = "deep_etching"
+DisplayName = "Deep Etching"
+Tier = 0
+RulesText = "+40% magazine size."
+ConflictGroup = "magazine"
+RequiresAmmo = true
+BaseGoldCost = 45
+MagazineMultiplier = 1.4

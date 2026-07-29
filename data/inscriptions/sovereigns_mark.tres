@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="InscriptionData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Weapons/InscriptionData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+Id = "sovereigns_mark"
+DisplayName = "Sovereign's Mark"
+Tier = 2
+RulesText = "+8% damage per point of Corruption."
+BaseGoldCost = 130
+CorruptionOnApply = 1
+DamagePerCorruption = 0.08

@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SigilData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Sigils/SigilData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+Id = "yellow_ledger"
+DisplayName = "Yellow Ledger"
+Tier = 1
+Shape = 1
+CodexText = "Double-entry bookkeeping, immaculately kept, in a hand that grows steadier as the entries grow worse."
+RulesText = "Perfect Recitation refunds 50% more Sanity."
+Offers = 64
+Wants = 4
+LeyAffinity = 0
+PerfectRefundBonus = 0.5

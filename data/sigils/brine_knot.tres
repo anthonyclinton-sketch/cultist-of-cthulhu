@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="SigilData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Sigils/SigilData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+Id = "brine_knot"
+DisplayName = "The Brine Knot"
+Tier = 1
+Shape = 2
+CodexText = "Tied wet, dried tight, and never once undone. Fishermen's work: the knot that holds is the knot nobody can explain."
+RulesText = "+7% move speed. +1 Sanity per kill."
+Offers = 2
+Wants = 1
+LeyAffinity = 0
+MoveSpeedBonus = 0.07
+KillSanityBonus = 1.0

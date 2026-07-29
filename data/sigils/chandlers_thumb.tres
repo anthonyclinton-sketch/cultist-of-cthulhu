@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SigilData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Sigils/SigilData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+Id = "chandlers_thumb"
+DisplayName = "Chandler's Thumb"
+Tier = 1
+Shape = 2
+CodexText = "Forty years of pinching wicks out. The callus outlasted the chandler by a considerable margin."
+RulesText = "+10% fire rate."
+Offers = 32
+Wants = 128
+LeyAffinity = 0
+FireRateBonus = 0.1

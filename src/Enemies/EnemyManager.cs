@@ -40,6 +40,19 @@ public sealed partial class EnemyManager : Node2D
     /// <summary>Driven from the player's Sanity band each tick (docs/02 §3.4).</summary>
     public float HallucinationRatio;
 
+    /// <summary>
+    /// Extra damage against enemies below 30% health — docs/04 §5.1, Rite of the Open Wound.
+    ///
+    /// A bare float pushed down by the player, not a reference to the Sigil Circle. This is
+    /// the only place in the codebase that can see a target's remaining health at the moment
+    /// of the hit, so the condition has to be evaluated here; that is not a reason for the
+    /// enemy system to learn what a sigil is.
+    /// </summary>
+    public float ExecuteDamageBonus;
+
+    /// <summary>Health fraction below which <see cref="ExecuteDamageBonus"/> applies.</summary>
+    private const float ExecuteThreshold = 0.30f;
+
     public int AliveCount { get; private set; }
     public int KilledThisRoom { get; private set; }
 
@@ -221,11 +234,18 @@ public sealed partial class EnemyManager : Node2D
 
                 // Marked (docs/02 §4) — you dashed through it.
                 if (e.IsMarked) dmg *= Enemy.MarkedDamageMultiplier;
+                dmg *= ExecuteMultiplier(e);
 
                 if (e.TakeDamage(dmg)) RecordKill(e);
                 break;
             }
         }
+    }
+
+    private float ExecuteMultiplier(Enemy e)
+    {
+        if (ExecuteDamageBonus <= 0f) return 1f;
+        return e.Health <= e.Data.MaxHealth * ExecuteThreshold ? 1f + ExecuteDamageBonus : 1f;
     }
 
     private void RecordKill(Enemy e)
@@ -338,6 +358,7 @@ public sealed partial class EnemyManager : Node2D
 
             float dmg = damage;
             if (e.IsMarked) dmg *= Enemy.MarkedDamageMultiplier;
+            dmg *= ExecuteMultiplier(e);
             if (e.TakeDamage(dmg)) RecordKill(e);
         }
         return struck;

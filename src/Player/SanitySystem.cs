@@ -131,6 +131,18 @@ public sealed class SanitySystem
     /// that is what makes them a strategic purchase rather than a top-up (docs/02 §3.3.1).</summary>
     public void GainPiercing(float amount) => Add(amount, respectCeiling: false);
 
+    /// <summary>
+    /// The lull trickle (docs/04 §5.2, Deep One's Gill). Respects the ceiling, and is
+    /// gated by the caller on several seconds of not spending anything.
+    ///
+    /// Kept separate from <see cref="GainFromKill"/> because it must NOT carry the low-band
+    /// refund treatment, and separate from <see cref="GainPiercing"/> because it must not
+    /// pierce the Lucid Ceiling — the candle is the only thing in the game that does
+    /// (docs/02 §3.3.1), and a passive trickle that also pierced would quietly become the
+    /// strongest effect in the run.
+    /// </summary>
+    public void GainTrickle(float amount) => Add(amount, respectCeiling: true);
+
     private void Add(float amount, bool respectCeiling)
     {
         if (Suspended) return;

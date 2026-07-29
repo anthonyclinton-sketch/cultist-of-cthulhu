@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SigilData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Sigils/SigilData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+Id = "ossuary_ring"
+DisplayName = "Ossuary Ring"
+Tier = 0
+Shape = 0
+CodexText = "A finger bone worn smooth into a band. The ossuary keepers were issued one each, and the locks below still recognise them."
+RulesText = "+1 Ossuary Key at the start of each floor."
+Offers = 32
+Wants = 0
+LeyAffinity = 0
+KeysPerFloor = 1

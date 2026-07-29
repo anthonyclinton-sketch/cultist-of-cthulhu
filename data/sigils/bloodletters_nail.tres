@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SigilData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Sigils/SigilData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+Id = "bloodletters_nail"
+DisplayName = "Bloodletter's Nail"
+Tier = 0
+Shape = 0
+CodexText = "A cobbler's awl, driven through the meat of the thumb and left there. The wound never closes and never festers. Both facts are considered proof."
+RulesText = "+8% damage."
+Offers = 128
+Wants = 0
+LeyAffinity = 1
+DamageBonus = 0.08

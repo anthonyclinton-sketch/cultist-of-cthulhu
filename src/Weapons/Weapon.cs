@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using CultistOfCthulhu.Bullets;
 using CultistOfCthulhu.Core;
 using CultistOfCthulhu.Player;
@@ -37,6 +38,236 @@ public sealed class Weapon
     private float _reloadTimer;
     private bool _perfectConsumed;
 
+    // ---------------------------------------------------------------- Loadout modifiers
+    //
+    // Pushed down by the holder each tick, sourced from the Sigil Circle. Plain floats
+    // rather than a reference to SigilEffects on purpose: a weapon has no business knowing
+    // what a ley line is, and the day Inscriptions also modify these numbers the weapon
+    // should not have to learn about them either. It reads two multipliers and one bonus.
+
+    /// <summary>Global damage multiplier — sigils, and the player's own conditional
+    /// bonuses (low health, Corruption scaling) already folded in by the caller.</summary>
+    public float DamageMultiplier { get; set; } = 1f;
+    public float FireRateMultiplier { get; set; } = 1f;
+    /// <summary>Extra fraction refunded by a Perfect Recitation, on top of the base half.</summary>
+    public float PerfectRefundBonus { get; set; }
+
+    // ---------------------------------------------------------------- Inscriptions
+    //
+    // docs/03 §3. Held as a LIST and projected into effective stats on read, never applied
+    // destructively to the weapon. There is therefore no "already applied" state to get
+    // wrong, no double-application on a reload path, and removing one is exact rather than
+    // an attempt to undo arithmetic.
+
+    private readonly List<InscriptionData> _inscriptions = new(3);
+    public IReadOnlyList<InscriptionData> Inscriptions => _inscriptions;
+    public int InscriptionSlots => Data.InscriptionSlots;
+    public bool HasFreeSlot => _inscriptions.Count < InscriptionSlots;
+
+    /// <summary>
+    /// Why this inscription cannot go on this weapon, or null if it can.
+    ///
+    /// Returns the REASON rather than a bool because docs/03 §3.4 requires the bench to
+    /// grey a conflicting offer out with an explicit explanation — and a reason
+    /// reconstructed in the UI drifts from the rule that produced it.
+    /// </summary>
+    public string? RejectReason(InscriptionData ins)
+    {
+        foreach (InscriptionData held in _inscriptions)
+        {
+            if (held.Id == ins.Id) return $"{Data.DisplayName} already carries {ins.DisplayName}.";
+            if (ins.ConflictGroup.Length > 0 && held.ConflictGroup == ins.ConflictGroup)
+                return $"conflicts with {held.DisplayName}.";
+        }
+
+        if (ins.RequiresAmmo && (Data.IsMelee || Data.SanityPerShot > 0f))
+            return $"{Data.DisplayName} does not use ammunition.";
+
+        return null;
+    }
+
+    /// <summary>Etch it on. The caller has already taken the gold and checked the slot.</summary>
+    public void AddInscription(InscriptionData ins)
+    {
+        _inscriptions.Add(ins);
+
+        // A magazine modifier changes the size of the thing currently in the gun. Topping
+        // up to the new maximum is the generous reading and the right one: the player just
+        // paid for a bigger magazine and should not have to reload to see it.
+        Magazine = Mathf.Min(Magazine, EffectiveMagazineSize);
+        Reserve = Mathf.Min(Reserve, ReserveCap);
+    }
+
+    /// <summary>Replace the inscription in a slot. docs/03 §3.1 — overwriting costs 1.5x
+    /// and refunds nothing, which is what makes a mistake recoverable rather than free.</summary>
+    public InscriptionData? ReplaceInscription(int slot, InscriptionData ins)
+    {
+        if (slot < 0 || slot >= _inscriptions.Count) return null;
+        InscriptionData old = _inscriptions[slot];
+        _inscriptions[slot] = ins;
+        return old;
+    }
+
+    // ---------------------------------------------------------------- Effective stats
+
+    public float EffectiveDamage
+    {
+        get
+        {
+            float bonus = 0f;
+            foreach (InscriptionData i in _inscriptions) bonus += i.DamageBonus;
+            return Data.Damage * (1f + bonus)
+                   * (PerfectBonusActive ? 1.15f : 1f)
+                   * Mathf.Max(0.05f, DamageMultiplier);
+        }
+    }
+
+    public float EffectiveFireRate
+    {
+        get
+        {
+            float bonus = 0f;
+            foreach (InscriptionData i in _inscriptions) bonus += i.FireRateBonus;
+            return Mathf.Max(0.05f, Data.FireRate * (1f + bonus) * Mathf.Max(0.05f, FireRateMultiplier));
+        }
+    }
+
+    public int EffectiveMagazineSize
+    {
+        get
+        {
+            float m = 1f;
+            foreach (InscriptionData i in _inscriptions) m *= i.MagazineMultiplier;
+            return Mathf.Max(1, Mathf.RoundToInt(Data.MagazineSize * m));
+        }
+    }
+
+    public int EffectiveTotalReserve
+    {
+        get
+        {
+            float m = 1f;
+            foreach (InscriptionData i in _inscriptions) m *= i.ReserveMultiplier;
+            return Mathf.Max(1, Mathf.RoundToInt(Data.TotalReserveRounds * m));
+        }
+    }
+
+    /// <summary>
+    /// Recitation cost after Light Etching and friends. Floored well above zero: docs/04
+    /// §8.6's rule is a general one, and reload is the primary Sanity sink post-F4 — an
+    /// inscription stack that made it free would repeal Pillar I as surely as any sigil.
+    /// </summary>
+    public float EffectiveReloadCost
+    {
+        get
+        {
+            float weight = Data.ReloadWeight;
+            foreach (InscriptionData i in _inscriptions) weight += i.ReloadWeightDelta;
+            return Core.Tune.SanityReciteCostPerWeight * Mathf.Max(0.2f, weight);
+        }
+    }
+
+    public float EffectiveSpread
+    {
+        get
+        {
+            float m = 1f;
+            foreach (InscriptionData i in _inscriptions) m *= i.SpreadMultiplier;
+            return Data.SpreadDegrees * m;
+        }
+    }
+
+    public float EffectiveProjectileSpeed
+    {
+        get
+        {
+            float m = 1f;
+            foreach (InscriptionData i in _inscriptions) m *= i.ProjectileSpeedMultiplier;
+            return Data.ProjectileSpeed * m;
+        }
+    }
+
+    public float EffectiveProjectileLifetime
+    {
+        get
+        {
+            float m = 1f;
+            foreach (InscriptionData i in _inscriptions) m *= i.ProjectileLifetimeMultiplier;
+            return Data.ProjectileLifetime * m;
+        }
+    }
+
+    public int EffectivePierce
+    {
+        get
+        {
+            int p = Data.Pierce;
+            foreach (InscriptionData i in _inscriptions) p += i.PierceBonus;
+            return p;
+        }
+    }
+
+    public bool Bounces
+    {
+        get
+        {
+            foreach (InscriptionData i in _inscriptions) if (i.BouncesOffWalls) return true;
+            return false;
+        }
+    }
+
+    /// <summary>Sanity granted by a kill made with this weapon (Yellow Ink).</summary>
+    public float KillSanityBonus
+    {
+        get
+        {
+            float s = 0f;
+            foreach (InscriptionData i in _inscriptions) s += i.KillSanityBonus;
+            return s;
+        }
+    }
+
+    /// <summary>Extra damage the player takes while carrying this weapon (The Unblinking Eye).</summary>
+    public float IncomingDamageBonus
+    {
+        get
+        {
+            float s = 0f;
+            foreach (InscriptionData i in _inscriptions) s += i.IncomingDamageBonus;
+            return s;
+        }
+    }
+
+    public float LowHealthDamageBonus
+    {
+        get
+        {
+            float s = 0f;
+            foreach (InscriptionData i in _inscriptions) s += i.LowHealthDamageBonus;
+            return s;
+        }
+    }
+
+    public float DamagePerCorruption
+    {
+        get
+        {
+            float s = 0f;
+            foreach (InscriptionData i in _inscriptions) s += i.DamagePerCorruption;
+            return s;
+        }
+    }
+
+    /// <summary>Homing overrides the authored behaviour when Whispering Rounds is etched on.</summary>
+    private bool TryHoming(out float turnRadiansPerSecond)
+    {
+        float best = 0f;
+        foreach (InscriptionData i in _inscriptions)
+            if (i.HomingDegreesPerSecond > best) best = i.HomingDegreesPerSecond;
+        turnRadiansPerSecond = Mathf.DegToRad(best);
+        return best > 0f;
+    }
+
     /// <summary>docs/02 §5.1 — 0.16s window, deliberately generous to learn, hard under pressure.</summary>
     private const float PerfectWindowDuration = 0.16f;
     private const float PerfectWindowStartFraction = 0.55f;
@@ -48,11 +279,15 @@ public sealed class Weapon
         Reserve = data.IsBoundArm ? int.MaxValue : data.TotalReserveRounds;
     }
 
+    /// <summary>Simplify the awkward case: a bound arm's reserve is conceptually infinite,
+    /// and clamping it against an effective maximum would make it finite.</summary>
+    private int ReserveCap => Data.IsBoundArm ? int.MaxValue : EffectiveTotalReserve;
+
     public bool IsEmpty => Magazine <= 0;
     public bool HasReserve => Reserve > 0;
     public float ReserveFraction => Data.IsBoundArm ? 1f
-        : Data.TotalReserveRounds <= 0 ? 0f
-        : Mathf.Clamp(Reserve / (float)Data.TotalReserveRounds, 0f, 1f);
+        : EffectiveTotalReserve <= 0 ? 0f
+        : Mathf.Clamp(Reserve / (float)EffectiveTotalReserve, 0f, 1f);
 
     public void Tick(float dt)
     {
@@ -88,7 +323,7 @@ public sealed class Weapon
     {
         if (!CanFire(sanity)) return 0;
 
-        _fireCooldown = 1f / Mathf.Max(0.01f, Data.FireRate);
+        _fireCooldown = 1f / EffectiveFireRate;
 
         // Grimoires spend Sanity instead of ammo. This is the mechanic docs/03 §2 flags
         // as an untested second economy — a 30-shot room on Cantrip: Withering costs
@@ -104,31 +339,46 @@ public sealed class Weapon
 
         if (Data.IsMelee) return 0;
 
-        float damage = Data.Damage * (PerfectBonusActive ? 1.15f : 1f);
+        float damage = EffectiveDamage;
         float baseAngle = Mathf.Atan2(direction.Y, direction.X);
-        float spread = Mathf.DegToRad(Data.SpreadDegrees);
+        float spread = Mathf.DegToRad(EffectiveSpread);
+        float speed = EffectiveProjectileSpeed;
 
         var flags = BulletFlags.PlayerOwned;
-        if (Data.Pierce > 0) flags |= BulletFlags.Piercing;
+        if (EffectivePierce > 0) flags |= BulletFlags.Piercing;
+        // Rebounding Rune. Worth almost nothing until walls existed to bounce off — before
+        // wall collision the flag only reflected at the arena bounds, hundreds of pixels
+        // outside any room the player was standing in.
+        if (Bounces) flags |= BulletFlags.BouncesOffWalls;
+
+        BulletBehaviour behaviour = Data.Behaviour;
+        float p0 = Data.BehaviourP0;
+        float p1 = Data.BehaviourP1;
+        if (TryHoming(out float turn))
+        {
+            behaviour = BulletBehaviour.Homing;
+            p0 = turn;
+            p1 = EffectiveProjectileLifetime;
+        }
 
         for (int i = 0; i < Data.ProjectilesPerShot; i++)
         {
-            float angle = Data.ProjectilesPerShot > 1
+            float angle = spread > 0f
                 ? baseAngle + rng.Range(-spread * 0.5f, spread * 0.5f)
-                : baseAngle + (spread > 0f ? rng.Range(-spread * 0.5f, spread * 0.5f) : 0f);
+                : baseAngle;
 
             var dir = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
             bullets.Spawn(
                 position: origin,
-                velocity: dir * Data.ProjectileSpeed,
+                velocity: dir * speed,
                 radius: Data.ProjectileRadius,
-                lifetime: Data.ProjectileLifetime,
+                lifetime: EffectiveProjectileLifetime,
                 color: Data.Colour,
                 renderSize: Data.ProjectileRenderSize,
                 flags: flags,
-                behaviour: Data.Behaviour,
-                bhParam0: Data.BehaviourP0,
-                bhParam1: Data.BehaviourP1,
+                behaviour: behaviour,
+                bhParam0: p0,
+                bhParam1: p1,
                 damage: damage);
         }
 
@@ -137,7 +387,7 @@ public sealed class Weapon
 
     // ---------------------------------------------------------------- Recitation
 
-    public bool NeedsReload => !Data.IsMelee && Data.SanityPerShot <= 0f && Magazine < Data.MagazineSize;
+    public bool NeedsReload => !Data.IsMelee && Data.SanityPerShot <= 0f && Magazine < EffectiveMagazineSize;
 
     /// <summary>
     /// Begin a reload. Costs Sanity up front (docs/02 §3.2) — if the player cannot pay,
@@ -147,7 +397,7 @@ public sealed class Weapon
     {
         if (IsReloading || !NeedsReload) return false;
         if (!Data.IsBoundArm && Reserve <= 0) return false;
-        if (!sanity.TrySpend(Data.SanityCostToReload)) return false;
+        if (!sanity.TrySpend(EffectiveReloadCost)) return false;
 
         IsReloading = true;
         _reloadTimer = 0f;
@@ -173,7 +423,9 @@ public sealed class Weapon
             return false;
         }
 
-        sanity.GainPiercing(Data.SanityCostToReload * 0.5f);
+        // Base refund is half the cost; the Yellow Ledger sigil raises the fraction, never
+        // to the whole cost — a free reload would repeal Pillar I (docs/04 §8.6).
+        sanity.GainPiercing(EffectiveReloadCost * Mathf.Min(0.9f, 0.5f * (1f + PerfectRefundBonus)));
         PerfectBonusActive = true;
         PerfectRecitations++;
         return true;
@@ -181,7 +433,7 @@ public sealed class Weapon
 
     private void CompleteReload()
     {
-        int needed = Data.MagazineSize - Magazine;
+        int needed = EffectiveMagazineSize - Magazine;
         int taken = Data.IsBoundArm ? needed : Mathf.Min(needed, Reserve);
 
         Magazine += taken;
@@ -196,7 +448,7 @@ public sealed class Weapon
     public void AddReserve(int rounds)
     {
         if (Data.IsBoundArm) return;
-        Reserve = Mathf.Min(Data.TotalReserveRounds, Reserve + rounds);
+        Reserve = Mathf.Min(ReserveCap, Reserve + rounds);
     }
 
     /// <summary>Consumed when a fresh magazine is spent, so the bonus lasts exactly one.</summary>

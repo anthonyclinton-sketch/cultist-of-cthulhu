@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SigilData" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/Sigils/SigilData.cs" id="1"]
+
+[resource]
+script = ExtResource("1")
+Id = "antiquarians_loupe"
+DisplayName = "Antiquarian's Loupe"
+Tier = 2
+Shape = 2
+CodexText = "Ground from a lens that was already old when it was salvaged. It shows provenance, and occasionally intent."
+RulesText = "+15% gold. Chest and shop tiers are shown before purchase."
+Offers = 64
+Wants = 32
+LeyAffinity = 0
+GoldBonus = 0.15
