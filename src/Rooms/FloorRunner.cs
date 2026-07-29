@@ -57,6 +57,7 @@ public sealed partial class FloorRunner : Node2D
     private RoomContent _content = null!;
     private UI.ReverieScreen _reverie = null!;
     private Minimap _minimap = null!;
+    private EncounterDirector _director = null!;
     private int _hitsAtRoomStart;
 
     /// <summary>
@@ -180,6 +181,9 @@ public sealed partial class FloorRunner : Node2D
         AddChild(_enemies);
         _enemies.Initialise(_enemyBullets, _playerBullets, world, Hash.Derive(GameRoot.Instance.RunSeed, "enemies"));
         _enemies.SetWalls(walls);
+
+        _director = new EncounterDirector(_roster, _enemies, _geometry,
+                                          Hash.Derive(_run.FloorSeed, "encounters"));
     }
 
     /// <summary>
@@ -645,15 +649,20 @@ public sealed partial class FloorRunner : Node2D
         _player.Sanity.InCombat = _encounterActive && _enemies.AliveCount > 0;
 
         TickBoss(dt);
+        if (_encounterActive) _director.Tick(dt, _player.GlobalPosition);
 
         _run.Telemetry.Tick(dt, _player.Sanity);
         _camera.Offset = _player.ShakeOffset(_rng);
 
-        // A boss room is cleared when the BOSS dies, not when the room empties. Without
-        // this the fight would end the first time the phase-2 adds were killed and the
-        // boss happened to be the only thing left, because AliveCount counts enemies and
-        // the boss is not one.
-        if (_encounterActive && _enemies.AliveCount == 0 && _boss is null) ClearRoom();
+        // A room is cleared when every WAVE has spawned and nothing is left — not the first
+        // time the floor happens to be empty. Checking AliveCount alone would clear the room
+        // in the gap between wave one dying and wave two's telegraph resolving.
+        //
+        // A boss room is cleared when the BOSS dies, for the same class of reason: AliveCount
+        // counts enemies and the boss is not one, so the fight would end the moment its
+        // phase-2 adds were killed.
+        bool enemiesDone = _director.Active ? _director.Finished : _enemies.AliveCount == 0;
+        if (_encounterActive && enemiesDone && _boss is null) ClearRoom();
         if (_player.IsDead) OnDeath();
 
         HandleReverie();
@@ -972,62 +981,37 @@ public sealed partial class FloorRunner : Node2D
         _pickups.Spawn(Items.PickupKind.Heart, at, 1f, rng);
     }
 
+    /// <summary>
+    /// docs/06 §6 — hand the room to the <see cref="EncounterDirector"/>.
+    ///
+    /// The budget is now the formula the spec actually states, including the two terms that
+    /// were missing entirely: Corruption scales it continuously at 6% per point, and
+    /// playerPowerMult answers the build the player has assembled. Before this a player who
+    /// filled their Circle, kitted a weapon and bought hearts met exactly the same rooms as
+    /// one who had done none of it.
+    /// </summary>
     private void StartEncounter(PlacedRoom room)
     {
         if (room.Role == RoomRole.Boss) { StartBossFight(room); return; }
 
-        // Budget scales with ROOM AREA as well as progression. Without this, scaling rooms
-        // up made every encounter sparse — four enemies is a fight in a one-screen room
-        // and a walk in a four-screen one, and the player would simply run past them.
-        //
-        // Scaled by the SQUARE ROOT of area, not area itself: enemy count rising linearly
-        // with floor space turns a big room into a slog rather than a bigger fight.
-        float areaTiles = room.Width * room.Height;
-        float areaScale = Mathf.Clamp(Mathf.Sqrt(areaTiles / 1100f), 0.85f, 2.3f);
-
-        float budget = Mathf.Min(room.Template.ThreatCapacity,
-                                 (34f + _roomsCleared * 13f) * areaScale);
-        if (room.Role == RoomRole.CombatHard) budget *= 1.25f;
-
-        float fodderFloor = budget * 0.35f;
-        float fodderSpent = 0f, spent = 0f;
-        int guard = 0;
-
-        Rect2 area = _geometry.RoomRectWorld(room).Grow(-32f);
-
-        // docs/02 §7.2 — Corruption 3+ awakens what spawns, 7+ adds one more of it. Read
-        // once here, before anything spawns, so a Banish mid-room cannot change the
+        // Read once, before anything spawns, so a Banish mid-room cannot change the
         // composition of the fight the player is already in.
         _enemies.SpawnAwakened = CorruptionTiers.EnemiesAwakened(_player.Corruption);
-        int extra = CorruptionTiers.ExtraEnemiesPerRoom(_player.Corruption);
 
-        while (spent < budget && guard++ < 64)
+        float power = DreadBudget.PlayerPower(
+            DreadBudget.TierWeightedCells(_player.Circle),
+            DreadBudget.BestWeaponTier(_player.Weapons),
+            DreadBudget.TotalInscriptions(_player.Weapons),
+            _player.MaxHearts);
+
+        float budget = DreadBudget.For(_run.FloorIndex, _roomsCleared, room.Template, room.Role,
+                                       _player.Corruption, power);
+
+        if (!_director.Begin(room, budget, _enemies.Walls))
         {
-            EnemyData pick = PickEnemy(fodderSpent < fodderFloor);
-            if (pick.DreadCost > budget - spent && spent > 0f) break;
-
-            var at = new Vector2(
-                _rng.Range(area.Position.X, area.Position.X + area.Size.X),
-                _rng.Range(area.Position.Y, area.Position.Y + area.Size.Y));
-
-            _enemies.Spawn(pick, at);
-            spent += pick.DreadCost;
-            if (pick.Role == EnemyRole.Fodder) fodderSpent += pick.DreadCost;
+            _clearedRooms.Add(room.NodeId);
+            return;
         }
-
-        // Corruption 7+ — one more than the budget bought, ON TOP of the budget rather than
-        // inside it. Folding it into the budget would let it displace a fodder pick and trip
-        // the 35% fodder floor, which would starve the Sanity economy exactly when the player
-        // has the most Corruption and needs it most.
-        for (int i = 0; i < extra; i++)
-        {
-            var at = new Vector2(
-                _rng.Range(area.Position.X, area.Position.X + area.Size.X),
-                _rng.Range(area.Position.Y, area.Position.Y + area.Size.Y));
-            _enemies.Spawn(PickEnemy(needFodder: false), at);
-        }
-
-        if (_enemies.AliveCount == 0) { _clearedRooms.Add(room.NodeId); return; }
 
         _encounterActive = true;
         // Arm the seal; UpdatePendingSeal closes it once the player is clear of the door.
@@ -1035,9 +1019,9 @@ public sealed partial class FloorRunner : Node2D
         _run.Telemetry.BeginRoom(_roomsCleared + 1, _player.Sanity);
 
         GD.Print($"[Room {room.Template.Id}] {room.Role}  budget {budget:F0}  " +
-                 $"enemies {_enemies.AliveCount}  ceiling {_player.Sanity.LucidCeiling:F0}" +
-                 (_enemies.SpawnAwakened ? "  AWAKENED" : "") +
-                 (extra > 0 ? $"  +{extra} (corruption)" : ""));
+                 $"power x{power:F2}  {_director.WaveCount} wave(s)  " +
+                 $"first {_enemies.AliveCount}  ceiling {_player.Sanity.LucidCeiling:F0}" +
+                 (_enemies.SpawnAwakened ? "  AWAKENED" : ""));
     }
 
     private EnemyData PickEnemy(bool needFodder)
@@ -1054,6 +1038,7 @@ public sealed partial class FloorRunner : Node2D
     private void ClearRoom()
     {
         _encounterActive = false;
+        _director.Reset();
         _pendingSealRoom = -1;      // never let an armed seal fire after the fight is over
         _clearedRooms.Add(_currentRoom);
         _roomsCleared++;
@@ -1171,7 +1156,10 @@ public sealed partial class FloorRunner : Node2D
         {
             if (arg.StartsWith("--screenshot=")) _screenshotPath = arg["--screenshot=".Length..];
             else if (arg.StartsWith("--screenshot-after="))
+            {
                 _screenshotAfter = int.TryParse(arg["--screenshot-after=".Length..], out int n) ? n : 40;
+                _screenshotAfterExplicit = true;
+            }
             else if (arg == "--melee-demo") _meleeDemo = true;
             else if (arg == "--combat-demo") _combatDemo = true;
             else if (arg.StartsWith("--room-demo=")) _roomDemo = arg["--room-demo=".Length..];
@@ -1188,8 +1176,13 @@ public sealed partial class FloorRunner : Node2D
         // finish. The default 40-frame trigger would fire in the middle of the first room
         // and quit, which is exactly what it did the first time — the file was written, the
         // harness reported success, and the picture was of the wrong thing entirely.
-        if (_autorun && _screenshotPath.Length > 0) _screenshotAfter = int.MaxValue;
+        // ...unless a frame was named explicitly, which is how a mid-run moment gets captured
+        // at all — a wave telegraph only exists while the autorun is fighting.
+        if (_autorun && _screenshotPath.Length > 0 && !_screenshotAfterExplicit)
+            _screenshotAfter = int.MaxValue;
     }
+
+    private bool _screenshotAfterExplicit;
 
     private void TickScreenshot()
     {
@@ -1260,9 +1253,15 @@ public sealed partial class FloorRunner : Node2D
                      $"firstOffset {_playerBullets.DebugFirstOffsetFrom(_player.GlobalPosition)}");
         }
 
+        // Hide the overlay a couple of frames EARLY. GetImage reads the framebuffer that was
+        // rendered before this tick ran, so hiding it on the capture frame itself only takes
+        // effect on the frame after — the first attempt at this captured the overlay covering
+        // two thirds of the shot.
+        if (_frameCount == _screenshotAfter - 2) HideOverlayForCapture();
+
         if (_frameCount != _screenshotAfter) return;
 
-        if (_roomDemo.Length > 0 || _reverieDemo)
+        if (_roomDemo.Length > 0 || _reverieDemo || _autorun)
         {
             Image shot = GetViewport().GetTexture().GetImage();
             Error e = shot.SavePng(_screenshotPath);
@@ -1445,6 +1444,7 @@ public sealed partial class FloorRunner : Node2D
                          new Color("D64545"));
         }
 
+        DrawWaveTelegraph();
         DrawBoss();
 
         if (_player.BanishPulse > 0f)
@@ -1452,6 +1452,66 @@ public sealed partial class FloorRunner : Node2D
             float t = 1f - _player.BanishPulse;
             DrawArc(_player.BanishOrigin, Tune.BanishRadius * (0.25f + 0.75f * t), 0, Mathf.Tau, 48,
                     new Color(0.55f, 0.9f, 0.85f, _player.BanishPulse * 0.9f), 3f);
+        }
+    }
+
+    /// <summary>
+    /// Incoming wave markers (docs/05 R4, docs/06 §6.2).
+    ///
+    /// R4 forbids a spawn into the play area without 0.6s of warning, and §6.2 wants the
+    /// spawn points themselves visible. A marker is drawn at each pending point; one that
+    /// falls outside the viewport is CLAMPED to the screen edge, which is R4's inbound-marker
+    /// clause — a reinforcement the player cannot see coming is an ambush they had no way to
+    /// read, and the trigger is their own kills, so it is always their doing.
+    ///
+    /// The ring closes as the telegraph runs, so the warning carries WHEN as well as where.
+    /// </summary>
+    private void DrawWaveTelegraph()
+    {
+        if (_director.PendingSpawns.Count == 0) return;
+
+        float t = _director.TelegraphProgress;
+        Vector2 view = _player.GlobalPosition;
+        var viewHalf = new Vector2(300f, 166f);
+
+        foreach (Vector2 at in _director.PendingSpawns)
+        {
+            Vector2 p = at;
+            bool offScreen = Mathf.Abs(at.X - view.X) > viewHalf.X
+                             || Mathf.Abs(at.Y - view.Y) > viewHalf.Y;
+            if (offScreen)
+            {
+                p = new Vector2(
+                    Mathf.Clamp(at.X, view.X - viewHalf.X, view.X + viewHalf.X),
+                    Mathf.Clamp(at.Y, view.Y - viewHalf.Y, view.Y + viewHalf.Y));
+            }
+
+            var warn = new Color("FFE066");
+
+            // A CLOSING SQUARE AND A CROSS, not a ring.
+            //
+            // The first version drew a red ring, which is what an Awakened enemy already
+            // wears — a capture showed the two side by side and they were the same mark. So
+            // the shapes are now disjoint: circles are bodies, an angular mark is a place
+            // something is about to be. Warm yellow rather than red for the same reason, and
+            // it does not collide with R1 either: that rule governs projectiles, and this is
+            // ground marking.
+            float half = 20f - 12f * t;
+            var box = new Rect2(p - new Vector2(half, half), new Vector2(half * 2f, half * 2f));
+            DrawRect(box, warn with { A = 0.25f + 0.45f * t }, filled: false, width: 1.5f);
+
+            float arm = 5f + 3f * t;
+            Color solid = warn with { A = 0.55f + 0.45f * t };
+            DrawLine(p - new Vector2(arm, arm), p + new Vector2(arm, arm), solid, 1.5f);
+            DrawLine(p - new Vector2(arm, -arm), p + new Vector2(arm, -arm), solid, 1.5f);
+
+            // An off-screen marker gets a tick pointing the way, so it reads as "from there"
+            // rather than "here".
+            if (offScreen)
+            {
+                Vector2 dir = (at - p).Normalized();
+                DrawLine(p, p + dir * 14f, solid, 2f);
+            }
         }
     }
 
