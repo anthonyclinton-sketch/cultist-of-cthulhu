@@ -31,7 +31,7 @@ public sealed partial class PlayerController : CharacterBody2D
     /// it survives floors, it is what the Reverie screen edits, and every one of its
     /// effects lands on something in this class or something this class publishes.
     /// </summary>
-    public Sigils.SigilCircle Circle { get; } = new();
+    public Sigils.SigilCircle Circle { get; private set; } = new();
 
     /// <summary>docs/02 §7. The threshold EFFECTS are M3; this counter exists now so that
     /// Ascension's cost is actually recorded rather than silently dropped.</summary>
@@ -1023,6 +1023,97 @@ public sealed partial class PlayerController : CharacterBody2D
     }
 
     public void Heal(float hearts) => Hearts = Mathf.Min(MaxHearts, Hearts + hearts);
+
+    // ================================================================ Run state
+    //
+    // docs/11 M2 wants a run, not a floor. RunState is the authority and this class is the
+    // working copy: load at the start of a floor, write back at the end. The alternative —
+    // both holding their own numbers and syncing — is how a permanent Ascension penalty
+    // gets silently refunded halfway through a run.
+
+    /// <summary>
+    /// Adopt a run's carried progression. Called once per floor, before the player is
+    /// placed.
+    ///
+    /// The Circle is adopted by REFERENCE rather than copied. It is the same build the
+    /// player spent the last floor arranging, and re-creating it from a layout would mean
+    /// re-running placement validation over something already known to be valid — and
+    /// would drop the Reliquary on the floor boundary.
+    /// </summary>
+    public void RestoreFrom(Meta.RunState run)
+    {
+        Circle = run.Circle;
+
+        MaxHearts = run.MaxHearts;
+        Hearts = Mathf.Clamp(run.Hearts, 0f, MaxHearts);
+        Armour = run.Armour;
+        Gold = run.Gold;
+        Keys = run.Keys;
+        Corruption = run.Corruption;
+
+        _bonusMaxSanity = run.BonusMaxSanity;
+        _maxSanityPenalty = run.MaxSanityPenalty;
+        Ascension.RestoreCount(run.AscensionCount);
+
+        Weapons.Clear();
+        foreach (Meta.CarriedWeapon cw in run.Weapons)
+        {
+            // Add returns null past the three-slot limit (docs/03 §1.1). A run that somehow
+            // carried a fourth would silently drop it rather than crash the floor.
+            Weapon? w = Weapons.Add(cw.Data);
+            if (w is null) break;
+
+            foreach (InscriptionData ins in cw.Inscriptions) w.AddInscription(ins);
+            w.SetReserve(cw.Reserve);
+        }
+
+        Telemetry = run.Telemetry;
+
+        // Derive Max from the Circle first, THEN place Current inside it. The other order
+        // clamps Current against a stale maximum and quietly deletes Sanity every time a
+        // floor begins.
+        OnSigilsChanged();
+        Sanity.RestoreTo(Mathf.Min(run.Sanity, Sanity.Max));
+
+        // A new floor resets the descent (docs/02 §3.3.1). The ceiling is a per-floor arc;
+        // carrying it would make floor 2 start where floor 1 ended and floor 6 unplayable.
+        Sanity.ResetCeiling();
+
+        _lethalNegationSpent = false;
+        _timeSinceSanitySpend = 0f;
+        _damageOverflow = 0f;
+        Phase = BlinkPhase.None;
+        _blinkFrame = 0;
+        _blinkCooldown = 0f;
+        _damageIFrames = 0f;
+        Velocity = Vector2.Zero;
+        _smoothedVelocity = Vector2.Zero;
+        Sanity.Suspended = false;
+    }
+
+    /// <summary>Write the carried progression back. Called when a floor ends, either way.</summary>
+    public void SaveTo(Meta.RunState run)
+    {
+        run.Hearts = Hearts;
+        run.MaxHearts = MaxHearts;
+        run.Armour = Armour;
+        run.Gold = Gold;
+        run.Keys = Keys;
+        run.Corruption = Corruption;
+        run.Sanity = Sanity.Current;
+        run.BonusMaxSanity = _bonusMaxSanity;
+        run.MaxSanityPenalty = _maxSanityPenalty;
+        run.AscensionCount = Ascension.AscensionCount;
+        run.Circle = Circle;
+
+        run.Weapons.Clear();
+        foreach (Weapon w in Weapons.Weapons)
+        {
+            var cw = new Meta.CarriedWeapon { Data = w.Data, Reserve = w.Reserve };
+            foreach (InscriptionData ins in w.Inscriptions) cw.Inscriptions.Add(ins);
+            run.Weapons.Add(cw);
+        }
+    }
 
     public void ResetForTest(Vector2 position)
     {

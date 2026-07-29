@@ -20,6 +20,28 @@ public sealed partial class GameRoot : Node
     /// <summary>True when launched with --determinism-test or --headless benchmarks.</summary>
     public bool HeadlessTestMode { get; private set; }
 
+    /// <summary>
+    /// The run in progress. Lives here because a run outlives a floor, and GameRoot is the
+    /// only thing in the project that outlives a scene.
+    ///
+    /// This is still "boots things and holds the seed" — GameRoot does not tick it, read it
+    /// or make decisions about it. It owns the reference so that a floor can be torn down
+    /// and rebuilt without the player's Circle going with it.
+    /// </summary>
+    public Meta.RunState Run { get; private set; } = new();
+
+    /// <summary>How many floors a run lasts. Raised by <c>--floors=N</c>, which is the only
+    /// way to exercise the floor scaling in the loot tables and shop prices until there is
+    /// more than one floor of content.</summary>
+    private int _floorsPerRun = 1;
+
+    /// <summary>Begin a fresh run. Everything carried is discarded.</summary>
+    public Meta.RunState StartNewRun()
+    {
+        Run = new Meta.RunState { Seed = RunSeed, FinalFloor = _floorsPerRun };
+        return Run;
+    }
+
     public override void _EnterTree()
     {
         Instance = this;
@@ -70,6 +92,11 @@ public sealed partial class GameRoot : Node
             {
                 metered = true;
             }
+            else if (args[i].StartsWith("--floors=", StringComparison.Ordinal)
+                     && int.TryParse(args[i][9..], out int floors))
+            {
+                _floorsPerRun = Math.Clamp(floors, 1, 6);
+            }
         }
 
         // Build B — the M1 control arm (docs/11 §M1 test design).
@@ -78,6 +105,7 @@ public sealed partial class GameRoot : Node
                               $"{Tune.SanityBlinkCostMetered:F0} Sanity.");
 
         RunSeed = seed ?? NewRandomSeed();
+        StartNewRun();
     }
 
     private static ulong NewRandomSeed()

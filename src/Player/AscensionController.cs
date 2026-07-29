@@ -157,6 +157,17 @@ public sealed class AscensionController
         AscensionCount++;
     }
 
+    /// <summary>
+    /// Restore the count across a floor boundary.
+    ///
+    /// This one is load-bearing. The diminishing duration and the escalating heart cost are
+    /// both keyed to the count, and both exist specifically to stop Ascension being
+    /// farmable — so a count that reset at every floor transition would hand the player a
+    /// fresh 20-second window at the cheapest price, six times a run, which is the exact
+    /// infinite loop the debt rule was written to close.
+    /// </summary>
+    public void RestoreCount(int count) => AscensionCount = Mathf.Max(0, count);
+
     public void ResetForRun()
     {
         IsAscended = false;

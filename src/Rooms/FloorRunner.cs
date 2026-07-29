@@ -32,12 +32,10 @@ public sealed partial class FloorRunner : Node2D
     private BulletManager _playerBullets = null!;
     private EnemyManager _enemies = null!;
     private Items.PickupManager _pickups = null!;
-    private readonly Items.DropTable _drops = new();
     private PlayerController _player = null!;
     private Hud _hud = null!;
     private Camera2D _camera = null!;
     private Rng _rng = null!;
-    private readonly Telemetry _telemetry = new();
 
     private GeneratedFloor _floor = null!;
     private FloorGeometry _geometry = null!;
@@ -57,24 +55,32 @@ public sealed partial class FloorRunner : Node2D
     private Minimap _minimap = null!;
     private int _hitsAtRoomStart;
 
+    /// <summary>
+    /// Split in two, and the split is the point of this class now.
+    ///
+    /// RUN-SCOPED things — the player, the camera, the HUD, the Reverie — are built once
+    /// and survive every floor transition, because they carry the build the player has
+    /// spent the run assembling. FLOOR-SCOPED things — geometry, the bullet managers, the
+    /// enemy manager, the room content — are torn down and rebuilt per floor, because
+    /// their bounds, their walls and their contents all change.
+    ///
+    /// Before this, everything was built in _Ready and reset on death, which is why killing
+    /// the boss cleared a room and then nothing happened: there was nowhere for a floor to
+    /// end TO.
+    /// </summary>
     public override void _Ready()
     {
         _rng = Hash.Derive(GameRoot.Instance.RunSeed, "floor_runner");
+        _run = GameRoot.Instance.Run;
 
         LoadContent();
-        GenerateFloor();
-        BuildGeometry();
-        BuildManagers();
-        BuildPlayer();
-        BuildCameraAndUi();
-        BuildRoomContent();
-
         ParseScreenshotArgs();
-        EnterRoom(_floor.FindRole(RoomRole.Entrance)!.NodeId);
 
-        GD.Print($"[FloorRunner] {_floor.Rooms.Count} rooms, flow '{_floor.FlowId}'. " +
-                 "WASD move · LMB fire · SPACE dash · R recite · RMB banish · TAB map · F3 overlay");
+        BuildRunScopedNodes();
+        BeginFloor();
     }
+
+    private Meta.RunState _run = null!;
 
     // ---------------------------------------------------------------- Setup
 
@@ -101,8 +107,11 @@ public sealed partial class FloorRunner : Node2D
     private void GenerateFloor()
     {
         var gen = new FloorGenerator(UndercroftContent.Flows(), UndercroftContent.Rooms());
-        GeneratedFloor? floor = gen.Generate(
-            Hash.Combine(GameRoot.Instance.RunSeed, "floor1"), floorIndex: 1, out string failure);
+
+        // The floor seed derives from the RUN seed and the floor index, so floor 2 of a
+        // given run is always the same floor 2 (docs/06 §7) and a re-entered floor is not a
+        // new one. It used to be hardcoded to "floor1".
+        GeneratedFloor? floor = gen.Generate(_run.FloorSeed, _run.FloorIndex, out string failure);
 
         if (floor is null)
         {
@@ -118,20 +127,24 @@ public sealed partial class FloorRunner : Node2D
         _geometry = new FloorGeometry(_floor);
 
         // Floor tiles, drawn as one batched node rather than thousands of ColorRects.
-        AddChild(new FloorTiles { Geometry = _geometry, ZIndex = -100 });
+        _floorTiles = new FloorTiles { Name = "FloorTiles", Geometry = _geometry, ZIndex = -100 };
+        AddChild(_floorTiles);
 
         // Collision shell.
-        var walls = new StaticBody2D { Name = "Walls" };
+        _wallBody = new StaticBody2D { Name = "Walls" };
         foreach (Rect2 r in _geometry.BuildWallRects())
         {
-            walls.AddChild(new CollisionShape2D
+            _wallBody.AddChild(new CollisionShape2D
             {
                 Position = r.Position + r.Size * 0.5f,
                 Shape = new RectangleShape2D { Size = r.Size },
             });
         }
-        AddChild(walls);
+        AddChild(_wallBody);
     }
+
+    private FloorTiles _floorTiles = null!;
+    private StaticBody2D _wallBody = null!;
 
     private void BuildManagers()
     {
@@ -163,58 +176,23 @@ public sealed partial class FloorRunner : Node2D
         _enemies.SetWalls(walls);
     }
 
-    private void BuildPlayer()
+    /// <summary>
+    /// Everything that survives a floor transition. Built once.
+    ///
+    /// The player is the important one: it carries the Circle, the inscriptions and the
+    /// Ascension debt, so rebuilding it per floor would silently reset the run. Its manager
+    /// references are rewired per floor by <see cref="RewirePlayer"/> instead.
+    /// </summary>
+    private void BuildRunScopedNodes()
     {
-        PlacedRoom entrance = _floor.FindRole(RoomRole.Entrance)!;
-
         _player = new PlayerController
         {
             Name = nameof(PlayerController),
-            Position = _geometry.RoomAnchorWorld(entrance),
-            EnemyBullets = _enemyBullets,
-            PlayerBullets = _playerBullets,
-            Enemies = _enemies,
-            Pickups = _pickups,
-            Telemetry = _telemetry,
+            Telemetry = _run.Telemetry,
         };
         _player.AddChild(new CollisionShape2D { Shape = new CircleShape2D { Radius = 6f } });
         AddChild(_player);
 
-        foreach (string path in new[]
-                 {
-                     "res://data/weapons/webley_mk_vi.tres",
-                     "res://data/weapons/cantrip_withering.tres",
-                     "res://data/weapons/sacrificial_kris.tres",
-                 })
-        {
-            var data = GD.Load<WeaponData>(path);
-            if (data is not null) _player.GiveWeapon(data);
-        }
-
-        BuildCircle();
-    }
-
-    /// <summary>
-    /// docs/04 §2.2, §2.3 — the run's Circle: a fixed Heart, and three ley lines whose
-    /// TYPES are rolled per run.
-    ///
-    /// Rolling the leys from the run seed rather than fixing them is what stops an optimal
-    /// layout being copied between runs: the same set of sigils wants a different
-    /// arrangement when the cross is Blood/Salt than when it is Ash/Gate.
-    /// </summary>
-    private void BuildCircle()
-    {
-        _player.Circle.RollLeyLines(Hash.Derive(GameRoot.Instance.RunSeed, "ley_lines"));
-
-        var heart = GD.Load<Sigils.SigilData>("res://data/sigils/heart_steady_pulse.tres");
-        if (heart is not null) _player.Circle.SetHeart(heart);
-
-        _player.OnSigilsChanged();
-        _player.OnFloorBegan();
-    }
-
-    private void BuildCameraAndUi()
-    {
         _camera = new Camera2D
         {
             Enabled = true,
@@ -227,34 +205,378 @@ public sealed partial class FloorRunner : Node2D
         var layer = new CanvasLayer { Name = "UI" };
         _hud = new Hud { Name = nameof(Hud), Player = _player };
         layer.AddChild(_hud);
-        _minimap = new Minimap { Name = nameof(Minimap), Floor = _floor, Player = _player, Cleared = _clearedRooms };
+        _minimap = new Minimap { Name = nameof(Minimap), Player = _player, Cleared = _clearedRooms };
         layer.AddChild(_minimap);
 
         _reverie = new UI.ReverieScreen { Name = nameof(UI.ReverieScreen), Player = _player };
         layer.AddChild(_reverie);
+
+        _summary = new UI.RunSummaryScreen { Name = nameof(UI.RunSummaryScreen) };
+        _summary.RestartRequested += StartNewRun;
+        layer.AddChild(_summary);
+
         AddChild(layer);
 
-        AddChild(new Debug.DebugOverlay
+        _content = new RoomContent
+        {
+            Name = nameof(RoomContent),
+            Player = _player,
+            Reverie = _reverie,
+            ZIndex = 5,
+        };
+        AddChild(_content);
+
+        StartNewRunState();
+    }
+
+    /// <summary>
+    /// Seed the run's starting loadout. Only on a genuinely new run — a floor transition
+    /// restores what the player is already carrying instead.
+    /// </summary>
+    private void StartNewRunState()
+    {
+        if (_run.Weapons.Count > 0) return;
+
+        foreach (string path in new[]
+                 {
+                     "res://data/weapons/webley_mk_vi.tres",
+                     "res://data/weapons/cantrip_withering.tres",
+                     "res://data/weapons/sacrificial_kris.tres",
+                 })
+        {
+            var data = GD.Load<WeaponData>(path);
+            if (data is null) continue;
+            var cw = new Meta.CarriedWeapon { Data = data, Reserve = data.TotalReserveRounds };
+            _run.Weapons.Add(cw);
+        }
+
+        // docs/04 §2.2, §2.3 — a fixed Heart, and three ley lines whose TYPES are rolled
+        // per RUN. Rolling them per run is what stops an optimal layout being copied
+        // between runs: the same set of sigils wants a different arrangement when the cross
+        // is Blood/Salt than when it is Ash/Gate. Rolling them per FLOOR would invalidate
+        // the build the player just spent a floor assembling.
+        _run.Circle.RollLeyLines(Hash.Derive(_run.Seed, "ley_lines"));
+
+        var heart = GD.Load<Sigils.SigilData>("res://data/sigils/heart_steady_pulse.tres");
+        if (heart is not null) _run.Circle.SetHeart(heart);
+    }
+
+    // ================================================================ The run loop
+
+    /// <summary>
+    /// Build a floor and put the player at its entrance. Idempotent — it tears down any
+    /// previous floor first, so it serves the first floor, every descent, and a restart.
+    /// </summary>
+    private void BeginFloor()
+    {
+        TearDownFloor();
+
+        GenerateFloor();
+        BuildGeometry();
+        BuildManagers();
+        RewirePlayer();
+
+        _content.FloorIndex = _run.FloorIndex;
+        _content.Pickups = _pickups;
+        _minimap.Floor = _floor;
+
+        PlacedRoom entrance = _floor.FindRole(RoomRole.Entrance)!;
+        _player.GlobalPosition = _geometry.RoomAnchorWorld(entrance);
+        _player.RestoreFrom(_run);
+        if (_autorun) AssertRestored();
+        _player.OnFloorBegan();
+        _camera.ResetSmoothing();
+
+        EnterRoom(entrance.NodeId);
+
+        GD.Print($"[FloorRunner] floor {_run.FloorIndex}/{_run.FinalFloor} — " +
+                 $"{_floor.Rooms.Count} rooms, flow '{_floor.FlowId}'. " +
+                 "WASD move · LMB fire · SPACE dash · R recite · RMB banish · " +
+                 "E interact · TAB Reverie · M map · F3 overlay");
+    }
+
+    /// <summary>
+    /// Free everything floor-scoped.
+    ///
+    /// Explicit rather than "free all children": the player, the camera, the HUD, the
+    /// Reverie and the summary screen all have to survive, and a blanket sweep would take
+    /// the player's Circle with it. Nulling the manager references matters too — a freed
+    /// node in C# is still a live object reference, and calling into one is a hard crash
+    /// rather than a null check.
+    /// </summary>
+    private void TearDownFloor()
+    {
+        _enemies?.ClearAll();
+
+        Retire(_enemies);
+        Retire(_enemyBullets);
+        Retire(_playerBullets);
+        Retire(_pickups);
+        Retire(_floorTiles);
+        Retire(_wallBody);
+        Retire(_overlay);
+
+        foreach (StaticBody2D body in _doorSeals.Values) Retire(body);
+        _doorSeals.Clear();
+
+        _enemies = null!;
+        _enemyBullets = null!;
+        _playerBullets = null!;
+        _pickups = null!;
+
+        _clearedRooms.Clear();
+        _content.ResetForFloor();
+
+        _encounterActive = false;
+        _pendingSealRoom = -1;
+        _currentRoom = -1;
+        _roomsCleared = 0;
+        _boss = null;
+        _bossRoom = -1;
+        _hud.Boss = null;
+        if (_reverie.IsOpen) _reverie.Close();
+    }
+
+    /// <summary>
+    /// Take a node out of the tree AND queue it for deletion.
+    ///
+    /// `QueueFree` alone defers until the end of the frame, so the old floor's nodes are
+    /// still children while the new floor's are being added — and Godot silently renames a
+    /// colliding sibling. That is survivable for the nodes held by reference and not for
+    /// the ones looked up by name: two DebugOverlays would draw over each other for a
+    /// frame, and `GetNodeOrNull("DebugOverlay")` would then find whichever won the race.
+    /// Removing first frees the name immediately.
+    /// </summary>
+    private void Retire(Node? node)
+    {
+        if (node is null || !IsInstanceValid(node)) return;
+        if (node.GetParent() is not null) node.GetParent().RemoveChild(node);
+        node.QueueFree();
+    }
+
+    /// <summary>Point the surviving player at this floor's freshly built managers.</summary>
+    private void RewirePlayer()
+    {
+        _player.EnemyBullets = _enemyBullets;
+        _player.PlayerBullets = _playerBullets;
+        _player.Enemies = _enemies;
+        _player.Pickups = _pickups;
+        _player.Telemetry = _run.Telemetry;
+
+        _overlay = new Debug.DebugOverlay
         {
             Name = nameof(Debug.DebugOverlay),
             BulletManagerPath = _enemyBullets.GetPath(),
             PlayerBulletManagerPath = _playerBullets.GetPath(),
             PlayerPath = _player.GetPath(),
-        });
+        };
+        AddChild(_overlay);
     }
 
-    private void BuildRoomContent()
+    private Debug.DebugOverlay? _overlay;
+    private UI.RunSummaryScreen _summary = null!;
+
+    /// <summary>
+    /// The boss is dead and the floor is over.
+    ///
+    /// This is the path that did not exist. Killing the boss dropped its loot, cleared the
+    /// room, and left the player standing in an empty arena with nothing to do and no way
+    /// to finish — so docs/11's "a complete, replayable, winnable Floor 1" was true of
+    /// every word except the last two.
+    /// </summary>
+    private void CompleteFloor()
     {
-        _content = new RoomContent
+        _player.SaveTo(_run);
+        _run.RoomsCleared += _roomsCleared;
+        _run.Duration = _run.Telemetry.SessionDuration;
+        _hitStop.Clear();
+
+        if (_run.IsFinalFloor)
         {
-            Name = nameof(RoomContent),
-            Player = _player,
-            Pickups = _pickups,
-            Reverie = _reverie,
-            FloorIndex = 1,
-            ZIndex = 5,
-        };
-        AddChild(_content);
+            _run.FloorsCleared++;
+            _run.Outcome = RunOutcome.Won;
+            EndRun();
+            return;
+        }
+
+        // Snapshot what SHOULD survive the stair, so the autorun can assert it did.
+        _carriedGold = _run.Gold;
+        _carriedCells = _run.Circle.UsedCells;
+        _carriedAscensions = _run.AscensionCount;
+
+        _run.AdvanceFloor();
+        GD.Print($"[FloorRunner] the stair goes down. Floor {_run.FloorIndex}. " +
+                 $"Carrying {_run.Gold} gold, {_run.Keys} keys, " +
+                 $"{_run.Circle.UsedCells} cells of Circle, {_run.Corruption:0.##} Corruption.");
+        BeginFloor();
+    }
+
+    /// <summary>
+    /// Death. Its absence is what turned a lost run into an apparent freeze: with no
+    /// handler the scene simply kept ticking a corpse, and nothing ever restored the
+    /// time scale or gave the player a way out.
+    /// </summary>
+    private void OnDeath()
+    {
+        _player.SaveTo(_run);
+        _run.RoomsCleared += _roomsCleared;
+        _run.Duration = _run.Telemetry.SessionDuration;
+        _run.Outcome = RunOutcome.Dead;
+
+        // Clear the time scale explicitly. Relying on the per-frame Apply() to release it
+        // is what failed here in the first place.
+        _hitStop.Clear();
+
+        EndRun();
+    }
+
+    /// <summary>
+    /// End the run, either way, and show the summary.
+    ///
+    /// Telemetry is written on BOTH outcomes, and that is a correctness fix rather than a
+    /// convenience. It used to be written only from the death handler, so every M1 metric
+    /// the project has ever recorded was conditioned on the run having failed — a tester
+    /// who finished the floor contributed nothing at all, and the sample was silently
+    /// biased toward exactly the runs where the Sanity economy went worst.
+    /// </summary>
+    private void EndRun()
+    {
+        GD.Print("--------------------------------------------------------");
+        GD.Print(_run.Outcome == RunOutcome.Won
+            ? $"[FloorRunner] RUN COMPLETE — {_run.FloorsCleared} floor(s), {_run.RoomsCleared} rooms."
+            : $"[FloorRunner] DEAD on floor {_run.FloorIndex} after {_run.RoomsCleared} rooms.");
+        // The autorun does not dodge, aim, reload or Banish, so every Sanity metric below
+        // reads zero. Said out loud, because a [FAIL] in a passing gate's output is how
+        // people learn to stop reading output.
+        if (_autorun)
+            GD.Print("[autorun] the metrics below are MEANINGLESS in this mode — nothing " +
+                     "spent Sanity. Structure only.");
+
+        GD.Print(_run.Telemetry.Summary());
+        _run.Telemetry.WriteCsv(outcome: _run.Outcome.ToString());
+
+        // Stop the floor simulating behind the summary. The player is dead or the boss is,
+        // and either way a room that keeps ticking can still spawn, shoot and kill.
+        _enemies?.ClearAll();
+        _enemyBullets?.Clear();
+        _playerBullets?.Clear();
+
+        _summary.Show(_run);
+        if (_autorun) FinishAutorun();
+    }
+
+    /// <summary>
+    /// The autorun's verdict. Asserts the properties a run must have and exits non-zero if
+    /// any of them fail, so this is CI-consumable exactly like the other gates.
+    /// </summary>
+    private void FinishAutorun()
+    {
+        int failures = 0;
+        void Check(bool ok, string what)
+        {
+            if (ok) GD.Print($" [ok]   {what}");
+            else { GD.PrintErr($" [FAIL] {what}"); failures++; }
+        }
+
+        GD.Print("================================================================");
+        GD.Print(" AUTORUN");
+        GD.Print("================================================================");
+
+        Check(_run.Outcome == RunOutcome.Won,
+              $"the run was won by killing the boss (outcome {_run.Outcome})");
+        Check(_run.FloorsCleared == _run.FinalFloor,
+              $"every floor was cleared ({_run.FloorsCleared}/{_run.FinalFloor})");
+        Check(_run.RoomsCleared > 5, $"rooms were actually fought ({_run.RoomsCleared})");
+        Check(_run.Telemetry.TotalRooms > 0,
+              $"telemetry recorded the run ({_run.Telemetry.TotalRooms} room records)");
+        Check(_restoreFailures == 0,
+              $"every floor restored the run intact ({_restoreFailures} discrepancies)");
+
+        // The whole reason for a RunState. If any of this resets at a floor boundary the
+        // player silently loses their run, and nothing else in the project would notice.
+        if (_run.FinalFloor > 1)
+        {
+            Check(_carriedGold >= 0 && _run.Gold >= _carriedGold,
+                  $"gold carried down the stair ({_carriedGold} -> {_run.Gold})");
+            Check(_run.Circle.UsedCells >= _carriedCells,
+                  $"the Circle carried down the stair ({_carriedCells} -> {_run.Circle.UsedCells} cells)");
+            Check(_run.AscensionCount >= _carriedAscensions,
+                  $"the Ascension count carried ({_carriedAscensions} -> {_run.AscensionCount})");
+        }
+
+        GD.Print("================================================================");
+        GD.Print(failures == 0 ? " AUTORUN: PASS" : $" AUTORUN: FAIL ({failures})");
+        GD.Print("================================================================");
+
+        // `--autorun --screenshot=...` captures the summary screen instead of quitting.
+        // The summary pauses the tree, which stops this node ticking and therefore stops
+        // the capture ever arriving — same trap as the Reverie demo. Release the pause and
+        // schedule the capture; the summary is a Control and keeps drawing regardless.
+        if (_screenshotPath.Length > 0)
+        {
+            GetTree().Paused = false;
+            _roomDemo = "captured";      // take the plain capture branch, not the fire test
+            _screenshotAfter = _frameCount + 4;
+            HideOverlayForCapture();
+            return;
+        }
+
+        GetTree().Quit(failures == 0 ? 0 : 1);
+    }
+
+    private int _carriedGold = -1;
+    private int _carriedCells;
+    private int _carriedAscensions;
+
+    /// <summary>
+    /// Check the restore the moment it happens, rather than only at the end of the run.
+    ///
+    /// These are the parts of <see cref="PlayerController.RestoreFrom"/> that fail silently
+    /// and cost the player a run: hearts and inscriptions simply not arriving, and — the
+    /// subtle one — Sanity being clamped against a stale maximum. Deriving Max from the
+    /// Circle AFTER placing Current inside it deletes Sanity at every floor boundary, by an
+    /// amount that looks exactly like ordinary spending.
+    /// </summary>
+    private void AssertRestored()
+    {
+        void Expect(bool ok, string what)
+        {
+            if (!ok) { GD.PrintErr($" [FAIL] floor {_run.FloorIndex} restore: {what}"); _restoreFailures++; }
+        }
+
+        Expect(Mathf.IsEqualApprox(_player.Hearts, Mathf.Min(_run.Hearts, _run.MaxHearts)),
+               $"hearts {_player.Hearts} != carried {_run.Hearts}");
+        Expect(Mathf.IsEqualApprox(_player.MaxHearts, _run.MaxHearts),
+               $"max hearts {_player.MaxHearts} != carried {_run.MaxHearts}");
+        Expect(_player.Gold == _run.Gold, $"gold {_player.Gold} != carried {_run.Gold}");
+        Expect(_player.Keys == _run.Keys, $"keys {_player.Keys} != carried {_run.Keys}");
+        Expect(_player.Weapons.Count == _run.Weapons.Count,
+               $"{_player.Weapons.Count} weapons != {_run.Weapons.Count} carried");
+        Expect(ReferenceEquals(_player.Circle, _run.Circle), "the Circle was rebuilt rather than adopted");
+
+        int carriedInscriptions = 0;
+        foreach (Meta.CarriedWeapon cw in _run.Weapons) carriedInscriptions += cw.Inscriptions.Count;
+        int liveInscriptions = 0;
+        foreach (Weapon w in _player.Weapons.Weapons) liveInscriptions += w.Inscriptions.Count;
+        Expect(liveInscriptions == carriedInscriptions,
+               $"{liveInscriptions} inscriptions != {carriedInscriptions} carried");
+
+        // The clamp. Sanity may be reduced by a smaller Max, but must never exceed it and
+        // must never be silently zeroed.
+        Expect(_player.Sanity.Current <= _player.Sanity.Max + 0.01f,
+               $"Sanity {_player.Sanity.Current} exceeds Max {_player.Sanity.Max}");
+        Expect(_player.Sanity.Current > 0f, "Sanity restored to zero");
+    }
+
+    private int _restoreFailures;
+
+    /// <summary>Discard the run and start another from the same seed.</summary>
+    private void StartNewRun()
+    {
+        _run = GameRoot.Instance.StartNewRun();
+        _player.Telemetry = _run.Telemetry;
+        StartNewRunState();
+        BeginFloor();
     }
 
     // ---------------------------------------------------------------- Tick
@@ -278,7 +600,7 @@ public sealed partial class FloorRunner : Node2D
 
         TickBoss(dt);
 
-        _telemetry.Tick(dt, _player.Sanity);
+        _run.Telemetry.Tick(dt, _player.Sanity);
         _camera.Offset = _player.ShakeOffset(_rng);
 
         // A boss room is cleared when the BOSS dies, not when the room empties. Without
@@ -289,6 +611,7 @@ public sealed partial class FloorRunner : Node2D
         if (_player.IsDead) OnDeath();
 
         HandleReverie();
+        TickAutorun();
         _minimap.Revealed = _content.RevealFloor;
 
         QueueRedraw();
@@ -468,7 +791,7 @@ public sealed partial class FloorRunner : Node2D
         _hud.Boss = _boss;
         _encounterActive = true;
         _pendingSealRoom = room.NodeId;
-        _telemetry.BeginRoom(_roomsCleared + 1, _player.Sanity);
+        _run.Telemetry.BeginRoom(_roomsCleared + 1, _player.Sanity);
 
         GD.Print($"[BOSS] {_bossData.DisplayName} — {_bossData.MaxHealth:F0} HP, " +
                  $"phases at {_bossData.Phase2At:P0} / {_bossData.Phase3At:P0}");
@@ -506,7 +829,14 @@ public sealed partial class FloorRunner : Node2D
             GD.Print($"[BOSS] the passenger got a hold of you — −{_bossData.GrabSanityCost:F0} Sanity.");
         }
 
-        if (_enemies.ConsumeBossKilled()) OnBossDefeated();
+        // Either the manager reported the kill, or the boss is simply dead.
+        //
+        // The latch alone was not enough: it is only set by player-bullet hit resolution,
+        // so a boss killed by anything else — melee is routed separately, and later a sigil
+        // proc or a damage-over-time will be too — died with its state set to Dead and the
+        // floor simply never ended. The autorun harness found this on its first run by
+        // killing the boss directly and then standing in the arena forever.
+        if (_enemies.ConsumeBossKilled() || !_boss.Alive) OnBossDefeated();
     }
 
     private void OnBossPhase(int phase)
@@ -608,7 +938,7 @@ public sealed partial class FloorRunner : Node2D
         _encounterActive = true;
         // Arm the seal; UpdatePendingSeal closes it once the player is clear of the door.
         _pendingSealRoom = room.NodeId;
-        _telemetry.BeginRoom(_roomsCleared + 1, _player.Sanity);
+        _run.Telemetry.BeginRoom(_roomsCleared + 1, _player.Sanity);
 
         GD.Print($"[Room {room.Template.Id}] {room.Role}  budget {budget:F0}  " +
                  $"enemies {_enemies.AliveCount}  ceiling {_player.Sanity.LucidCeiling:F0}");
@@ -636,7 +966,7 @@ public sealed partial class FloorRunner : Node2D
         if (room is not null) SealDoors(room, false);
 
         float headroom = _player.Sanity.LucidCeiling - _player.Sanity.Current;
-        _drops.RollRoomClear(_pickups, _player.GlobalPosition, _rng, 1,
+        _run.Drops.RollRoomClear(_pickups, _player.GlobalPosition, _rng, _run.FloorIndex,
                              _player.Keys, _player.TotalReserveFraction(), headroom);
 
         // The Ledger of Names (docs/04 §5.5) — gold for a room cleared without being hit.
@@ -660,13 +990,19 @@ public sealed partial class FloorRunner : Node2D
         }
 
         Weapon w = _player.Weapons.Active;
-        _telemetry.EndRoom(_player.Sanity, _player.Weapons.ReloadsAttempted,
+        _run.Telemetry.EndRoom(_player.Sanity, _player.Weapons.ReloadsAttempted,
                            _player.Weapons.ReloadsDenied, w.PerfectRecitations, w.FailedRecitations);
 
         _player.Sanity.OnRoomCleared();
 
         GD.Print($"[cleared] {_roomsCleared} rooms  sanity {_player.Sanity.Current:F0}/" +
                  $"{_player.Sanity.Max:F0}  ceiling {_player.Sanity.LucidCeiling:F0}  band {_player.Sanity.Band}");
+
+        // Clearing the boss room ends the FLOOR, not just the room. Hooked here rather than
+        // in OnBossDefeated so the boss's own room still gets its drops, its telemetry
+        // record and its doors unsealed first — a floor that ends on the death frame skips
+        // all three, and the missing telemetry record would be the boss fight itself.
+        if (room is not null && room.Role == RoomRole.Boss) CompleteFloor();
     }
 
     /// <summary>
@@ -699,54 +1035,6 @@ public sealed partial class FloorRunner : Node2D
 
     // ---------------------------------------------------------------- Draw
 
-    /// <summary>
-    /// Death. Its absence is what turned a lost run into an apparent freeze: with no
-    /// handler the scene simply kept ticking a corpse, and nothing ever restored the
-    /// time scale or gave the player a way out.
-    /// </summary>
-    private void OnDeath()
-    {
-        GD.Print("--------------------------------------------------------");
-        GD.Print($"[FloorRunner] DEAD after {_roomsCleared} rooms.");
-        GD.Print(_telemetry.Summary());
-        _telemetry.WriteCsv();
-
-        // Clear the time scale explicitly. Relying on the per-frame Apply() to release it
-        // is what failed here in the first place.
-        _hitStop.Clear();
-
-        RestartFloor();
-    }
-
-    /// <summary>Rebuild the run on the same floor: everything back to the entrance.</summary>
-    private void RestartFloor()
-    {
-        _enemies.ClearAll();
-        _enemyBullets.Clear();
-        _playerBullets.Clear();
-        _pickups.ClearAll();
-
-        foreach (StaticBody2D body in _doorSeals.Values) body.QueueFree();
-        _doorSeals.Clear();
-
-        _clearedRooms.Clear();
-        _encounterActive = false;
-        _pendingSealRoom = -1;
-        _currentRoom = -1;
-        _roomsCleared = 0;
-        _drops.ResetForRun();
-        _content.ResetForRun();
-        _boss = null;
-        _bossRoom = -1;
-        _hud.Boss = null;
-        if (_reverie.IsOpen) _reverie.Close();
-
-        PlacedRoom entrance = _floor.FindRole(RoomRole.Entrance)!;
-        _player.ResetForTest(_geometry.RoomAnchorWorld(entrance));
-        BuildCircle();
-        EnterRoom(entrance.NodeId);
-    }
-
     // ---------------------------------------------------------------- Visual capture
     //
     // --screenshot=<path> renders a frame to PNG and quits. Every rendering bug in this
@@ -777,7 +1065,14 @@ public sealed partial class FloorRunner : Node2D
             else if (arg == "--combat-demo") _combatDemo = true;
             else if (arg.StartsWith("--room-demo=")) _roomDemo = arg["--room-demo=".Length..];
             else if (arg == "--reverie-demo") _reverieDemo = true;
+            else if (arg == "--autorun") _autorun = true;
         }
+
+        // An autorun capture is of the SUMMARY, which arrives whenever the run happens to
+        // finish. The default 40-frame trigger would fire in the middle of the first room
+        // and quit, which is exactly what it did the first time — the file was written, the
+        // harness reported success, and the picture was of the wrong thing entirely.
+        if (_autorun && _screenshotPath.Length > 0) _screenshotAfter = int.MaxValue;
     }
 
     private void TickScreenshot()
@@ -1082,12 +1377,86 @@ public sealed partial class FloorRunner : Node2D
 
     }
 
+    // ================================================================ Autorun
+    //
+    // A headless player. It walks the floor room by room, clearing each one instantly, and
+    // finishes with the boss.
+    //
+    // It exists because the run loop cannot be tested any other way. Every part of it —
+    // floor completion, carrying a Circle down a stair, the summary, starting again — only
+    // happens after a boss dies, and no gate in this project has ever been able to reach a
+    // boss. The floor smoke test runs 600 frames of a player standing still in the entrance.
+    //
+    // Deliberately NOT a simulation of play: it does not dodge, aim or spend Sanity, so it
+    // proves nothing about balance and is not a substitute for a playtest. It proves the
+    // STRUCTURE holds.
+
+    private bool _autorun;
+    private int _autorunTimer;
+    private int _autorunRoomIndex;
+
+    private void TickAutorun()
+    {
+        if (!_autorun) return;
+
+        // A few frames between steps. Room entry arms a door seal, drops spawn and get
+        // magnetised, and the boss needs a tick to register as a target — stepping every
+        // frame would race all three.
+        if (++_autorunTimer < 8) return;
+        _autorunTimer = 0;
+
+        // Kill whatever is in the room. The boss goes through TakeDamage rather than being
+        // deleted, so the phase transitions, the drop and the floor completion all run
+        // exactly as they would in play.
+        if (_encounterActive)
+        {
+            foreach (Enemy e in _enemies.Enemies) if (e.Alive) e.TakeDamage(99999f);
+
+            // The boss takes a CHUNK rather than a lethal hit, so the phase thresholds are
+            // actually crossed and the invulnerable transitions actually run. One-shotting
+            // it would test the death path and nothing else, and the phase machine is the
+            // part with moving pieces.
+            if (_boss is not null && !_boss.Invulnerable)
+                _boss.TakeDamage(_boss.Data.MaxHealth * 0.11f);
+            return;
+        }
+
+        // Then move on. Non-boss rooms first, so the floor is actually walked rather than
+        // skipped straight to the end — the point is to exercise room content, drops and
+        // telemetry on the way.
+        PlacedRoom? next = null;
+        foreach (PlacedRoom r in _floor.Rooms)
+        {
+            if (_clearedRooms.Contains(r.NodeId) || r.Role == RoomRole.Boss) continue;
+            next = r;
+            break;
+        }
+        next ??= _floor.FindRole(RoomRole.Boss);
+
+        if (next is null) return;
+
+        _player.GlobalPosition = _geometry.RoomAnchorWorld(next);
+        EnterRoom(next.NodeId);
+        _autorunRoomIndex++;
+
+        // Take whatever the room offers, and inscribe it. Without this the harness finishes
+        // every run with an empty Circle, and "the Circle carried down the stair" is an
+        // assertion about one locked Heart — which is exactly the kind of test that passes
+        // whatever happens.
+        if (_content.DebugTakeSomething())
+        {
+            while (_player.Circle.Reliquary.Count > 0)
+                if (!_player.Circle.AutoPlace(_player.Circle.Reliquary[0])) break;
+            _player.OnSigilsChanged();
+        }
+    }
+
     private void HandleDebugKeys()
     {
         if (Input.IsKeyPressed(Key.F5))
         {
-            GD.Print(_telemetry.Summary());
-            _telemetry.WriteCsv();
+            GD.Print(_run.Telemetry.Summary());
+            _run.Telemetry.WriteCsv();
         }
         // F7 cycles hit-stop weight. It is a taste parameter, so it gets a live knob rather
         // than a constant someone has to guess at from a description.

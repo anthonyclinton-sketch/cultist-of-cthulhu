@@ -177,7 +177,17 @@ public sealed class Telemetry
         return sb.ToString();
     }
 
-    public void WriteCsv(string path = "user://m1_telemetry.csv")
+    /// <summary>
+    /// Write the run's records.
+    ///
+    /// <paramref name="outcome"/> is in the header because it has to be. This used to be
+    /// called only from the death handler, so **every metric the project has ever recorded
+    /// was conditioned on the run having failed** — a tester who finished a floor
+    /// contributed nothing, and the sample was silently biased toward exactly the runs
+    /// where the Sanity economy went worst. Recording the outcome means a later analysis
+    /// can separate the two rather than having to trust that it was never mixed.
+    /// </summary>
+    public void WriteCsv(string path = "user://m1_telemetry.csv", string outcome = "unknown")
     {
         var sb = new StringBuilder();
         // Build tag first. A telemetry file that cannot be attributed to an arm is worthless
@@ -185,6 +195,7 @@ public sealed class Telemetry
         // week later.
         sb.AppendLine($"# build={(Core.Tune.MeteredDodge ? "B-metered-dodge" : "A-free-dodge")}," +
                       $"seed={Core.Hash.FormatSeed(Core.GameRoot.Instance.RunSeed)}," +
+                      $"outcome={outcome}," +
                       $"blink_cost={Core.Tune.SanityBlinkCost:F0}," +
                       $"ceiling_floor={Core.Tune.LucidCeilingFloor:F0}");
         sb.AppendLine("room,duration,sanity_start,sanity_end,sanity_min,income,spend,ceiling," +

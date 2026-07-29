@@ -386,6 +386,27 @@ public sealed partial class RoomContent : Node2D
         QueueRedraw();
     }
 
+    /// <summary>
+    /// Take the first thing in this room the player can pay for. Used by the autorun
+    /// harness, which has no hands.
+    ///
+    /// It goes through <see cref="Activate"/> rather than granting anything directly, so
+    /// the harness exercises the real acquisition path — payment, group consumption, the
+    /// Reliquary — instead of a shortcut that would prove nothing about it.
+    /// </summary>
+    public bool DebugTakeSomething()
+    {
+        foreach (Interactable it in _items)
+        {
+            if (it.Consumed) continue;
+            if (it.KeyCost > Player.Keys || it.GoldCost > Player.Gold) continue;
+
+            Activate(it);
+            return true;
+        }
+        return false;
+    }
+
     private void Flash(string text)
     {
         _flash = text;
@@ -668,10 +689,19 @@ public sealed partial class RoomContent : Node2D
         }
     }
 
-    public void ResetForRun()
+    /// <summary>
+    /// Forget this floor's furniture. Called on every floor transition.
+    ///
+    /// The reroll price and the key-chest flag reset because both are per-FLOOR promises:
+    /// docs/08 §2.2 raises the reroll price "per reroll this floor", and §1.3 guarantees
+    /// one connector key chest per floor. Carrying either across a descent would quietly
+    /// make floor 2 stingier than floor 1 for no stated reason.
+    /// </summary>
+    public void ResetForFloor()
     {
         _items.Clear();
         _populated.Clear();
+        _focus = null;
         _keyChestPlaced = false;
         _rerollCost = 50;
         RevealFloor = false;

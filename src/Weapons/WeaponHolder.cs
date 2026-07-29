@@ -32,10 +32,22 @@ public sealed class WeaponHolder
     public int ReloadsAttempted { get; private set; }
     public int ReloadsDenied { get; private set; }
 
-    public void Add(WeaponData data)
+    /// <summary>Add a weapon. Returns it, so a caller restoring a run can etch its
+    /// inscriptions straight back on without looking it up again.</summary>
+    public Weapon? Add(WeaponData data)
     {
-        if (_weapons.Count >= MaxSlots) return;
-        _weapons.Add(new Weapon(data));
+        if (_weapons.Count >= MaxSlots) return null;
+        var w = new Weapon(data);
+        _weapons.Add(w);
+        return w;
+    }
+
+    /// <summary>Drop everything. Used when a floor restores a run's loadout.</summary>
+    public void Clear()
+    {
+        _weapons.Clear();
+        _active = 0;
+        _meleeSanityBudget.Clear();
     }
 
     public void SetActive(int index)

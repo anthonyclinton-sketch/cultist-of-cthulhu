@@ -89,6 +89,17 @@ Write-Host "`n### BANISH ###"
 & $godot --headless --path $root res://scenes/debug/BanishTest.tscn
 if ($LASTEXITCODE -ne 0) { $failed += "banish" }
 
+# A run, played start to finish. The only gate that reaches a boss, completes a floor,
+# carries a build down a stair and ends a run — none of which any other gate can even get
+# near, because they all leave the player standing in the entrance.
+Write-Host "`n### AUTORUN — A COMPLETE RUN ###"
+& $godot --headless --path $root res://scenes/debug/FloorRunner.tscn --seed $Seed --autorun --quit-after 40000
+if ($LASTEXITCODE -ne 0) { $failed += "autorun" }
+
+Write-Host "`n### AUTORUN — THREE FLOORS (descent carries the run) ###"
+& $godot --headless --path $root res://scenes/debug/FloorRunner.tscn --seed $Seed --autorun --floors=3 --quit-after 60000
+if ($LASTEXITCODE -ne 0) { $failed += "autorun (3 floors)" }
+
 Write-Host "`n### BOSS 1 ###"
 & $godot --headless --path $root res://scenes/debug/BossTest.tscn
 if ($LASTEXITCODE -ne 0) { $failed += "boss" }

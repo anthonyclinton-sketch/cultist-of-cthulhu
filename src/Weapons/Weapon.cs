@@ -445,6 +445,15 @@ public sealed class Weapon
         _reloadTimer = 0f;
     }
 
+    /// <summary>Restore a carried reserve across a floor boundary. Ammunition is a run-length
+    /// pressure (docs/00 §1.2) — refilling it at every transition would remove the rotation
+    /// the whole ammo economy exists to force.</summary>
+    public void SetReserve(int rounds)
+    {
+        if (Data.IsBoundArm) return;
+        Reserve = Mathf.Clamp(rounds, 0, ReserveCap);
+    }
+
     public void AddReserve(int rounds)
     {
         if (Data.IsBoundArm) return;
