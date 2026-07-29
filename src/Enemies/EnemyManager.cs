@@ -89,8 +89,23 @@ public sealed partial class EnemyManager : Node2D
         _field = new FlowField(bounds);
     }
 
+    /// <summary>Solid geometry for pathing and for enemy bodies. Null in the fixed arena,
+    /// where the only walls are the bounds.</summary>
+    public Core.TileMask? Walls { get; private set; }
+
+    public void SetWalls(Core.TileMask mask)
+    {
+        Walls = mask;
+        _field.ApplyMask(mask);
+    }
+
     public Enemy Spawn(EnemyData data, Vector2 position)
     {
+        // Callers pick spawn points by area, which does not know about geometry. An enemy
+        // placed inside a wall can never move out of it — MoveCircle refuses every step
+        // that keeps it overlapping — so it stands there until shot.
+        if (Walls is not null) position = Walls.NearestOpen(position, data.BodyRadius);
+
         var e = new Enemy(_nextId++, data, position, _enemyBullets, _rng);
         _enemies.Add(e);
 
@@ -136,7 +151,7 @@ public sealed partial class EnemyManager : Node2D
             if (!e.Alive) continue;
             e.Ascended = PlayerAscended;
             e.HallucinationRatio = HallucinationRatio;
-            e.Tick(dt, PlayerPosition, PlayerVelocity, _field);
+            e.Tick(dt, PlayerPosition, PlayerVelocity, _field, Walls);
             AliveCount++;
         }
 
@@ -252,8 +267,21 @@ public sealed partial class EnemyManager : Node2D
 
                 float dist = Mathf.Sqrt(distSq);
                 Vector2 push = delta / dist * (minDist - dist) * 0.5f;
-                a.Position -= push;
-                b.Position += push;
+
+                // Routed through the mask rather than assigned. Separation is the one force
+                // that moves an enemy without consulting its velocity, so a pair squeezed
+                // against a wall would otherwise push each other straight into it — and an
+                // enemy that starts a tick inside solid ground never gets back out.
+                if (Walls is null)
+                {
+                    a.Position -= push;
+                    b.Position += push;
+                }
+                else
+                {
+                    a.Position = Walls.MoveCircle(a.Position, -push, a.Data.BodyRadius);
+                    b.Position = Walls.MoveCircle(b.Position, push, b.Data.BodyRadius);
+                }
             }
         }
     }

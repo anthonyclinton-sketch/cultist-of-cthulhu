@@ -57,6 +57,35 @@ public sealed class FlowField
         _blocked[cy * _w + cx] = blocked;
     }
 
+    /// <summary>
+    /// Mark cells solid from the floor's tile mask. Until this was called the field had no
+    /// obstacles at all — <see cref="SetBlocked"/> existed and nothing ever invoked it, so
+    /// every enemy steered on a straight line to the player through whatever was in the way.
+    ///
+    /// A cell is blocked when its CENTRE is solid, which is the ordinary way to rasterise a
+    /// fine grid onto a coarse one. The two alternatives are both worse here: "blocked if
+    /// any tile is solid" closes 48px doorways against 40px cells, and "blocked only if
+    /// every sample is solid" leaves the 32px partition between two flush rooms open, so the
+    /// field would route enemies at a wall and leave hard collision to explain why they
+    /// cannot get there.
+    ///
+    /// Cell-resolution error is bounded by half a cell and is absorbed by the collision
+    /// resolution in <see cref="Core.TileMask.MoveCircle"/>; the field is steering, not the
+    /// guarantee.
+    /// </summary>
+    public void ApplyMask(Core.TileMask mask)
+    {
+        for (int cy = 0; cy < _h; cy++)
+        {
+            for (int cx = 0; cx < _w; cx++)
+            {
+                float wx = _origin.X + (cx + 0.5f) * CellSize;
+                float wy = _origin.Y + (cy + 0.5f) * CellSize;
+                _blocked[cy * _w + cx] = mask.IsSolid(wx, wy);
+            }
+        }
+    }
+
     private (int cx, int cy) ToCell(Vector2 world) => (
         Mathf.Clamp(Mathf.FloorToInt((world.X - _origin.X) / CellSize), 0, _w - 1),
         Mathf.Clamp(Mathf.FloorToInt((world.Y - _origin.Y) / CellSize), 0, _h - 1));

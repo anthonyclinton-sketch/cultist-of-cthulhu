@@ -115,9 +115,35 @@ public sealed class Enemy
         if (State is EnemyState.Telegraph or EnemyState.Attack) Transition(EnemyState.Recover);
     }
 
-    public void Tick(float dt, Vector2 playerPos, Vector2 playerVel, FlowField field)
+    /// <summary>
+    /// Solid geometry, pushed down from the manager. Null in the fixed arena.
+    ///
+    /// Enemies are ticked by hand rather than being <c>CharacterBody2D</c>s, which is what
+    /// makes 60 of them affordable (docs/05 §8) — and is also why they walked through walls
+    /// until this existed. The flow field routes AROUND geometry, but a flee, a knockback
+    /// or a Rusher's lunge all ignore the field entirely, so steering alone was never going
+    /// to be enough.
+    /// </summary>
+    private Core.TileMask? _walls;
+
+    /// <summary>
+    /// Integrate position with wall resolution. Every movement path goes through here —
+    /// approach, flee, stun-slide and knockback — because the three that bypassed the flow
+    /// field were exactly the three that put enemies inside walls.
+    /// </summary>
+    private void Move(float dt)
+    {
+        Vector2 delta = Velocity * dt;
+        Position = _walls is null
+            ? Position + delta
+            : _walls.MoveCircle(Position, delta, Data.BodyRadius);
+    }
+
+    public void Tick(float dt, Vector2 playerPos, Vector2 playerVel, FlowField field,
+                     Core.TileMask? walls)
     {
         if (!Alive) return;
+        _walls = walls;
 
         if (HitFlash > 0f) HitFlash -= dt;
         if (_attackCooldown > 0f) _attackCooldown -= dt;
@@ -136,7 +162,7 @@ public sealed class Enemy
             // Carry the knockback impulse, decaying. Freezing in place instead would make
             // Banish feel like a pause button rather than a shove.
             Velocity = Velocity.MoveToward(Vector2.Zero, Data.MoveSpeed * 2.5f * dt);
-            Position += Velocity * dt;
+            Move(dt);
             return;
         }
 
@@ -157,7 +183,7 @@ public sealed class Enemy
             float wobble = Mathf.Sin(_stateTimer * 7f + Id) * 0.5f;
             Vector2 away = -toPlayer.Rotated(wobble);
             Velocity = Velocity.MoveToward(away * Data.MoveSpeed * 1.3f, Data.MoveSpeed * 6f * dt);
-            Position += Velocity * dt;
+            Move(dt);
             return;
         }
 
@@ -226,7 +252,7 @@ public sealed class Enemy
                 break;
         }
 
-        Position += Velocity * dt;
+        Move(dt);
     }
 
     private void MoveTowardPreferredRange(float dt, float dist, FlowField field)

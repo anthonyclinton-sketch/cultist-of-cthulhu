@@ -68,6 +68,11 @@ public sealed partial class Benchmark : Node2D
             TargetPosition = new Vector2(50000, 50000),
             TargetRadius = Tune.PlayerHitboxRadius,
             TargetInvulnerable = false,
+
+            // Wall collision is part of the tick now, so the gate has to pay for it.
+            // Without a mask here the null check branches over the whole query and the
+            // budget would be measured against code the real game does not run.
+            Walls = OpenMask(),
         };
         AddChild(_bullets);
 
@@ -83,6 +88,24 @@ public sealed partial class Benchmark : Node2D
         GD.Print($" renderer        {(DisplayServer.GetName() == "headless" ? "headless — sim + buffer build, no GPU" : DisplayServer.GetName())}");
         GD.Print($" warmup {WarmupFrames}   measure {MeasureFrames}   alloc settle {AllocSettleFrames}");
         GD.Print("----------------------------------------------------------------");
+    }
+
+    /// <summary>
+    /// A mask with no solid tiles in it, sized so no bullet can reach the edge.
+    ///
+    /// Deliberately empty. The gate measures the QUERY, which runs for every bullet every
+    /// tick; a hit ends in a swap-remove, which is cheaper and which the benchmark cannot
+    /// afford anyway — a bullet that dies stops being one of the 4096 the measurement is
+    /// pinned to, and a benchmark whose population drifts is measuring the wrong thing.
+    ///
+    /// Sized from the drift: bullets start within 900px and travel at up to 120px/s for the
+    /// 12 seconds of warmup plus measurement, so nothing gets past ~2400px. 3072 leaves room.
+    /// </summary>
+    private static TileMask OpenMask()
+    {
+        const int half = 192;   // tiles; 192 * 16px = 3072px each way
+        return new TileMask(half * 2, half * 2, Tune.PixelsPerUnit,
+                            new Vector2(-half * Tune.PixelsPerUnit, -half * Tune.PixelsPerUnit));
     }
 
     /// <summary>

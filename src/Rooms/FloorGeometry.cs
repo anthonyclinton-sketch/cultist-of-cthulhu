@@ -230,6 +230,24 @@ public sealed class FloorGeometry
         return false;
     }
 
+    /// <summary>
+    /// The walkable grid as a <see cref="Core.TileMask"/>, for the systems that simulate
+    /// their own movement and therefore never meet the collision shell above.
+    ///
+    /// Derived from the SAME grid as <see cref="BuildWallRects"/> rather than from the
+    /// rects it produces. Those rects only cover wall tiles that touch walkable space —
+    /// they are a collision shell, not a description of solid ground — so a body far inside
+    /// the rock between two rooms would find nothing to collide with.
+    /// </summary>
+    public Core.TileMask BuildSolidMask()
+    {
+        var mask = new Core.TileMask(Width, Height, Tile, new Vector2(_origin.X * Tile, _origin.Y * Tile));
+        for (int y = 0; y < Height; y++)
+            for (int x = 0; x < Width; x++)
+                mask.SetSolid(x, y, !_walkable[x, y]);
+        return mask;
+    }
+
     public List<Rect2> BuildFloorRects()
     {
         var rects = new List<Rect2>();

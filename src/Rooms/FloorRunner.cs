@@ -131,10 +131,18 @@ public sealed partial class FloorRunner : Node2D
             (b.Position.X - 4) * FloorGeometry.Tile, (b.Position.Y - 4) * FloorGeometry.Tile,
             (b.Size.X + 8) * FloorGeometry.Tile, (b.Size.Y + 8) * FloorGeometry.Tile);
 
-        _enemyBullets = new BulletManager { Name = nameof(BulletManager), Bounds = world };
+        // One mask, shared by both bullet managers and the enemies. Built from the same
+        // walkable grid the collision shell comes from, so the hand-simulated systems and
+        // Godot's physics agree about where the walls are.
+        Core.TileMask walls = _geometry.BuildSolidMask();
+
+        _enemyBullets = new BulletManager { Name = nameof(BulletManager), Bounds = world, Walls = walls };
         AddChild(_enemyBullets);
 
-        _playerBullets = new BulletManager { Name = "PlayerBullets", Bounds = world, CollideWithEnemies = true };
+        _playerBullets = new BulletManager
+        {
+            Name = "PlayerBullets", Bounds = world, CollideWithEnemies = true, Walls = walls,
+        };
         AddChild(_playerBullets);
 
         _pickups = new Items.PickupManager { Name = nameof(Items.PickupManager) };
@@ -143,6 +151,7 @@ public sealed partial class FloorRunner : Node2D
         _enemies = new EnemyManager { Name = nameof(EnemyManager) };
         AddChild(_enemies);
         _enemies.Initialise(_enemyBullets, _playerBullets, world, Hash.Derive(GameRoot.Instance.RunSeed, "enemies"));
+        _enemies.SetWalls(walls);
     }
 
     private void BuildPlayer()

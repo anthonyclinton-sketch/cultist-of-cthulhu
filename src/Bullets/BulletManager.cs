@@ -112,6 +112,18 @@ public sealed partial class BulletManager : Node2D
     /// <summary>When true (Blink Step i-frames), bullets pass through without being consumed.</summary>
     public bool TargetInvulnerable;
 
+    /// <summary>
+    /// Solid geometry. Null in the fixed arena and the benchmarks, where <see cref="Bounds"/>
+    /// is the only wall there is.
+    ///
+    /// docs/02 §1 assumes projectiles stop at walls, and until this existed they did not —
+    /// bullets crossed rooms, corridors and solid rock freely. It was invisible while rooms
+    /// were one screen across (a bullet left the room and left the screen in the same
+    /// moment) and became obvious the instant rooms were scaled up, because a shot fired at
+    /// a wall now travels far enough on the far side to be watched doing it.
+    /// </summary>
+    public TileMask? Walls;
+
     /// <summary>Arena bounds. Bullets leaving are despawned (or reflected, per flag).</summary>
     public Rect2 Bounds
     {
@@ -220,6 +232,11 @@ public sealed partial class BulletManager : Node2D
 
     public int Count => _count;
     public int Capacity => Cap;
+
+    /// <summary>Position of the i-th live bullet. For tests and diagnostics only — the
+    /// simulation and the renderer both read the SoA arrays directly, and routing the hot
+    /// loops through a Vector2-returning accessor would undo the point of the layout.</summary>
+    public Vector2 GetPosition(int i) => new(_posX[i], _posY[i]);
 
     /// <summary>Bullets rejected because the pool was full. Non-zero means an encounter
     /// exceeded its design budget (docs/05 R7) and should be re-authored, not clamped.</summary>
@@ -399,6 +416,9 @@ public sealed partial class BulletManager : Node2D
         float maxX = minX + Bounds.Size.X;
         float maxY = minY + Bounds.Size.Y;
 
+        // Hoisted: a field read plus a null check per bullet is measurable at 4096.
+        TileMask? walls = Walls;
+
         int i = 0;
         while (i < _count)
         {
@@ -434,6 +454,37 @@ public sealed partial class BulletManager : Node2D
                     {
                         if (x < minX || x > maxX) { _velX[i] = -_velX[i]; x = Math.Clamp(x, minX, maxX); }
                         if (y < minY || y > maxY) { _velY[i] = -_velY[i]; y = Math.Clamp(y, minY, maxY); }
+                        _rot[i] = Mathf.Atan2(_velY[i], _velX[i]);
+                    }
+                    else
+                    {
+                        dead = true;
+                    }
+                }
+
+                // Solid tiles. Tested against the SWEPT segment, not the endpoint: a fast
+                // bullet covers more than a 32px partition in one 60Hz step and would
+                // otherwise pass straight through the wall between two flush rooms.
+                if (!dead && walls is not null &&
+                    walls.SegmentHitsSolid(_posX[i], _posY[i], x, y))
+                {
+                    if ((flags & (int)BulletFlags.BouncesOffWalls) != 0)
+                    {
+                        // Which axis carried it in? Test each candidate independently and
+                        // reflect only the blocked component, so a glancing shot runs along
+                        // the wall instead of returning to sender.
+                        bool blockedX = walls.IsSolid(x, _posY[i]);
+                        bool blockedY = walls.IsSolid(_posX[i], y);
+                        if (!blockedX && !blockedY) { blockedX = true; blockedY = true; }
+
+                        if (blockedX) _velX[i] = -_velX[i];
+                        if (blockedY) _velY[i] = -_velY[i];
+
+                        // Stay on the last known-good position. Clamping to the surface
+                        // would need the exact contact point, and a one-tick pause at the
+                        // wall is invisible where a wrong clamp is a bullet inside rock.
+                        x = _posX[i];
+                        y = _posY[i];
                         _rot[i] = Mathf.Atan2(_velY[i], _velX[i]);
                     }
                     else
