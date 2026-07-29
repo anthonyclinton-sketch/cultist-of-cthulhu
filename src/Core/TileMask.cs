@@ -56,6 +56,36 @@ public sealed class TileMask
         _solid[ty * Width + tx] = solid;
     }
 
+    /// <summary>
+    /// Close or open every tile overlapping a world rect. This is how a sealed door becomes
+    /// a wall.
+    ///
+    /// It has to exist because the mask was built ONCE from the static geometry, and door
+    /// seals are dynamic — they are <c>StaticBody2D</c> nodes, which the player collides
+    /// with because the player is a CharacterBody2D, and which bullets and enemies do not
+    /// see at all because both simulate their own movement. So a sealed door was a wall to
+    /// the player and open air to everything else, and enemies walked out of contested rooms
+    /// through doors the player could not follow them through.
+    ///
+    /// Exactly the same failure as bullets passing through walls, one layer up: the fix
+    /// there was to give the hand-simulated systems one shared mask, and the fix here is to
+    /// let the dynamic half of the geometry into it.
+    /// </summary>
+    public void SetSolidWorldRect(Rect2 rect, bool solid)
+    {
+        int minTx = TileX(rect.Position.X);
+        int minTy = TileY(rect.Position.Y);
+        // Inclusive of the last tile the rect touches, exclusive of one it merely abuts:
+        // doorway rects are tile-aligned, so a bare TileX of the far edge would close an
+        // extra row of tiles beyond the door.
+        int maxTx = TileX(rect.Position.X + rect.Size.X - 0.001f);
+        int maxTy = TileY(rect.Position.Y + rect.Size.Y - 0.001f);
+
+        for (int ty = minTy; ty <= maxTy; ty++)
+            for (int tx = minTx; tx <= maxTx; tx++)
+                SetSolid(tx, ty, solid);
+    }
+
     public bool IsSolidTile(int tx, int ty) =>
         tx < 0 || ty < 0 || tx >= Width || ty >= Height || _solid[ty * Width + tx];
 

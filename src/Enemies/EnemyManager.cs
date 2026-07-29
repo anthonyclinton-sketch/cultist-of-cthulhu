@@ -145,6 +145,20 @@ public sealed partial class EnemyManager : Node2D
     }
 
     /// <summary>
+    /// Re-read the mask into the flow field. Call after the geometry changes — a door
+    /// sealing or opening.
+    ///
+    /// The field caches blocked cells at <see cref="SetWalls"/> time and only recomputes
+    /// distances on a repath, so a seal written into the mask would stop enemy BODIES while
+    /// still steering them at the door. Hard collision would hold, but the pathing would
+    /// spend the whole fight pushing enemies into a wall.
+    /// </summary>
+    public void RefreshPathing()
+    {
+        if (Walls is not null) _field.ApplyMask(Walls);
+    }
+
+    /// <summary>
     /// Set from the player's Corruption each time a room populates (docs/02 §7.2). Read at
     /// SPAWN rather than per tick, so an enemy's toughness cannot change under the player
     /// mid-fight — Banishing four times during a room would otherwise awaken the things
@@ -169,6 +183,48 @@ public sealed partial class EnemyManager : Node2D
         // log because the next room started normally.
         AliveCount++;
         return e;
+    }
+
+    /// <summary>
+    /// Push anything standing in newly-solid ground back out, toward <paramref name="towards"/>.
+    ///
+    /// Called after a door seals. An enemy caught in the doorway at that moment is entombed:
+    /// <see cref="Core.TileMask.MoveCircle"/> refuses every step that keeps a body
+    /// overlapping, so a body that STARTS overlapping can never move again and stands there
+    /// until shot.
+    ///
+    /// Biased toward a point rather than simply nearest-open, and the bias is the whole
+    /// point: the two sides of a doorway are a contested room and a corridor, and an enemy
+    /// evicted to the corridor side is outside a sealed room it cannot re-enter — so the
+    /// encounter can never be cleared and the run is over. Pushing toward the room's own
+    /// anchor keeps it in the fight.
+    /// </summary>
+    public void EvictFromSolid(Vector2 towards)
+    {
+        if (Walls is null) return;
+
+        foreach (Enemy e in _enemies)
+        {
+            if (!e.Alive) continue;
+            if (!Walls.CircleOverlaps(e.Position.X, e.Position.Y, e.Data.BodyRadius)) continue;
+
+            Vector2 dir = (towards - e.Position).Normalized();
+            if (dir.LengthSquared() < 0.01f) dir = Vector2.Right;
+
+            // Walk it inward a tile at a time before falling back to a ring search, so the
+            // result is a position in the room rather than merely the closest gap.
+            bool freed = false;
+            for (int step = 1; step <= 8; step++)
+            {
+                Vector2 candidate = e.Position + dir * (Walls.TileSize * step);
+                if (Walls.CircleOverlaps(candidate.X, candidate.Y, e.Data.BodyRadius)) continue;
+                e.Position = candidate;
+                freed = true;
+                break;
+            }
+
+            if (!freed) e.Position = Walls.NearestOpen(e.Position, e.Data.BodyRadius);
+        }
     }
 
     public void ClearAll()

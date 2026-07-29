@@ -32,6 +32,10 @@ public sealed partial class WallCollisionTest : Node2D
 
     private int _failures;
 
+    /// <summary>Seeds on which an unsealed room actually leaked. Proves the seal assertion is
+    /// capable of failing; see the note in TestSealedRoomHoldsEnemies.</summary>
+    private int _openEscapesSeen;
+
     public override void _Ready()
     {
         GD.Print("================================================================");
@@ -39,6 +43,11 @@ public sealed partial class WallCollisionTest : Node2D
         GD.Print("================================================================");
 
         foreach (string seed in Seeds) RunSeed(seed);
+
+        GD.Print("");
+        Check(_openEscapesSeen > 0,
+              $"the escape check is sensitive — enemies left an UNSEALED room on " +
+              $"{_openEscapesSeen} of {Seeds.Length} seeds");
 
         GD.Print("================================================================");
         GD.Print(_failures == 0 ? " WALL COLLISION: PASS" : $" WALL COLLISION: FAIL ({_failures})");
@@ -71,6 +80,7 @@ public sealed partial class WallCollisionTest : Node2D
 
         TestRoomCentresAreOpen(floor, geometry, mask, seedText);
         TestEveryOpeningIsSealable(floor, geometry, mask, seedText);
+        TestSealedRoomHoldsEnemies(floor, geometry, seedText);
         TestBulletsStopAtWalls(floor, geometry, mask, seedText);
         TestFastBulletsDoNotTunnel(floor, geometry, mask, seedText);
         TestEnemiesStayOutOfWalls(floor, geometry, mask, seedText);
@@ -178,6 +188,151 @@ public sealed partial class WallCollisionTest : Node2D
     }
 
     /// <summary>
+    /// A sealed room actually holds what is inside it.
+    ///
+    /// The bug this exists for was reported from play: an enemy walked out through a locked
+    /// door. Door seals are <c>StaticBody2D</c> nodes, so they stopped the PLAYER — the only
+    /// thing in the game using Godot's physics — and were invisible to bullets and enemies,
+    /// which both simulate their own movement against the tile mask.
+    ///
+    /// Driven directly rather than through the autorun, which clears a room in about eight
+    /// frames and would almost never give anything time to wander out. Here the player is
+    /// placed OUTSIDE the room so every enemy pushes at a door for a full ten seconds, which
+    /// is the worst case and the one that was failing.
+    /// </summary>
+    private void TestSealedRoomHoldsEnemies(GeneratedFloor floor, FloorGeometry geometry,
+                                            string seedText)
+    {
+        var data = GD.Load<EnemyData>("res://data/enemies/cellar_ghoul.tres");
+        if (data is null) { Check(false, "cellar_ghoul.tres failed to load"); return; }
+
+        // A fresh mask, so sealing does not disturb the other tests on this seed.
+        TileMask mask = geometry.BuildSolidMask();
+        Rect2 bounds = WorldBounds(floor);
+
+        var enemyBullets = new BulletManager { Bounds = bounds, Walls = mask };
+        var playerBullets = new BulletManager { Bounds = bounds, Walls = mask, CollideWithEnemies = true };
+        var manager = new EnemyManager();
+        AddChild(enemyBullets);
+        AddChild(playerBullets);
+        AddChild(manager);
+
+        manager.Initialise(enemyBullets, playerBullets, bounds, new Rng(0x5EA1));
+        manager.SetWalls(mask);
+
+        // Pick a room with several exits — the more doors, the more chances to leak.
+        PlacedRoom? target = null;
+        int mostDoors = 0;
+        foreach (PlacedRoom r in floor.Rooms)
+        {
+            int doors = 0;
+            foreach (Doorway d in geometry.Doors) if (d.Room == r.NodeId) doors++;
+            if (doors <= mostDoors) continue;
+            mostDoors = doors;
+            target = r;
+        }
+        if (target is null) { Check(false, $"seed {seedText}: no room with doorways"); return; }
+
+        // Run it twice: once with the doors OPEN, once sealed.
+        //
+        // The open pass is not decoration — it proves the test can detect an escape at all.
+        // A "0 escaped" result means nothing on its own, because it is also what a broken
+        // harness reports: enemies that never move, a room rect that swallows everything, a
+        // player position that happens to be reachable. If they do not get out with the doors
+        // open, this test cannot see the bug it was written for.
+        // Somewhere REACHABLE but outside the room — see the note in RunSealedRoom.
+        Vector2 lure = LureOutside(floor, geometry, target);
+
+        int escapedOpen = RunSealedRoom(geometry, manager, data, target, lure, sealDoors: false);
+        int escapedSealed = RunSealedRoom(geometry, manager, data, target, lure, sealDoors: true);
+
+        // Sensitivity is tallied across the run rather than demanded of every seed. Whether a
+        // particular room leaks within ten seconds depends on how far its doors are from the
+        // lure and how the flow field routes out of it, so a per-seed requirement would be
+        // brittle for reasons that say nothing about the seal. One seed proving the harness
+        // can see an escape is enough; the sealed assertion below is the hard one, and it is
+        // checked on every seed.
+        if (escapedOpen > 0) _openEscapesSeen++;
+
+        Check(escapedSealed == 0,
+              $"seed {seedText}: {mostDoors} sealed doorways held 10 enemies for 10s " +
+              $"({escapedSealed} escaped)");
+
+        manager.QueueFree();
+        enemyBullets.QueueFree();
+        playerBullets.QueueFree();
+    }
+
+    /// <summary>
+    /// A standable point in some OTHER room, for enemies to be lured toward.
+    ///
+    /// It must be reachable, and that is the whole subtlety. Pointing the flow field at a
+    /// spot far outside the floor does not make enemies walk to the edge — <c>FlowField</c>
+    /// clamps the target to its grid, the clamped corner cell is solid rock, and a BFS that
+    /// starts on a blocked cell cannot spread at all. Every cell then reports a zero
+    /// direction and NOTHING MOVES.
+    ///
+    /// That is how the sibling test in this file was passing: "no enemy body entered a wall
+    /// over 300 ticks of pushing" was true because there was no pushing. A test whose
+    /// subjects are motionless will confirm any invariant asked of it.
+    /// </summary>
+    private static Vector2 LureOutside(GeneratedFloor floor, FloorGeometry geometry, PlacedRoom target)
+    {
+        // A connected neighbour first: the shortest real path out of the room.
+        foreach (int id in target.Connections)
+        {
+            foreach (PlacedRoom r in floor.Rooms)
+                if (r.NodeId == id) return geometry.RoomAnchorWorld(r);
+        }
+
+        foreach (PlacedRoom r in floor.Rooms)
+            if (r.NodeId != target.NodeId) return geometry.RoomAnchorWorld(r);
+
+        return geometry.RoomAnchorWorld(target);
+    }
+
+    /// <summary>Populate the room, optionally seal it, and lure everything at the doors for
+    /// ten seconds. Returns how many got out.</summary>
+    private static int RunSealedRoom(FloorGeometry geometry, EnemyManager manager, EnemyData data,
+                                    PlacedRoom target, Vector2 lure, bool sealDoors)
+    {
+        manager.ClearAll();
+
+        TileMask mask = geometry.BuildSolidMask();
+        if (sealDoors)
+        {
+            foreach (Doorway d in geometry.Doors)
+                if (d.Room == target.NodeId) mask.SetSolidWorldRect(d.WorldRect, true);
+        }
+        manager.SetWalls(mask);
+
+        var rng = new Rng(0xD00);
+        Rect2 interior = geometry.RoomInteriorWorld(target);
+        for (int i = 0; i < 10; i++)
+        {
+            var at = new Vector2(
+                rng.Range(interior.Position.X, interior.Position.X + interior.Size.X),
+                rng.Range(interior.Position.Y, interior.Position.Y + interior.Size.Y));
+            manager.Spawn(data, at);
+        }
+        manager.EvictFromSolid(geometry.RoomAnchorWorld(target));
+
+        manager.PlayerPosition = lure;
+
+        Rect2 allowed = geometry.RoomRectWorld(target).Grow(FloorGeometry.Tile);
+        for (int t = 0; t < 600; t++)
+        {
+            manager._PhysicsProcess(1.0 / 60.0);
+
+            int out_ = 0;
+            foreach (Enemy e in manager.Enemies)
+                if (e.Alive && !allowed.HasPoint(e.Position)) out_++;
+            if (out_ > 0) return out_;
+        }
+        return 0;
+    }
+
+    /// <summary>
     /// A ring of bullets fired outward from each room centre. Whatever survives must be
     /// standing on open ground — which is the whole claim.
     /// </summary>
@@ -269,13 +424,18 @@ public sealed partial class WallCollisionTest : Node2D
     }
 
     /// <summary>
-    /// Drive enemies at walls and confirm their bodies never enter one.
+    /// Drive enemies across the floor and confirm their bodies never enter a wall.
     ///
-    /// The player is placed OUTSIDE the room, so the flow field points every enemy at a
-    /// wall and holds it there for the whole run. Steering toward a reachable player would
-    /// test the flow field's routing rather than the collision resolution, and it is the
-    /// resolution that has to hold when a Rusher's lunge or a Banish knockback ignores the
-    /// field entirely.
+    /// The lure is a REACHABLE room on the far side of the floor, and that correction is the
+    /// point. This test used to aim the flow field at a spot thousands of pixels outside the
+    /// floor on the theory that an unreachable target would hold every enemy pressed against
+    /// a wall. It does the opposite: <c>FlowField</c> clamps the target into its grid, the
+    /// clamped cell is solid, a BFS from a blocked cell cannot spread, and every enemy
+    /// therefore received a zero direction and stood perfectly still for 300 ticks. The
+    /// assertion held because nothing moved.
+    ///
+    /// Luring them somewhere real makes them cross corridors and doorways and grind along
+    /// walls on the way, which is the case that actually exercises the resolution.
     /// </summary>
     private void TestEnemiesStayOutOfWalls(GeneratedFloor floor, FloorGeometry geometry,
                                            TileMask mask, string seedText)
@@ -312,9 +472,16 @@ public sealed partial class WallCollisionTest : Node2D
               $"seed {seedText}: all {spawned} enemies spawned clear of walls " +
               $"({SpawnedClearOfWalls(manager, mask)} embedded)");
 
-        // Far outside the floor: unreachable, so every enemy walks into whatever is between
-        // it and that direction and keeps pushing.
-        manager.PlayerPosition = bounds.Position + bounds.Size + new Vector2(4000f, 4000f);
+        // Lure them to the ENTRANCE, which is reachable from everywhere by construction, so
+        // the whole roster crosses the floor and grinds along every wall on the way.
+        PlacedRoom entrance = floor.FindRole(RoomRole.Entrance)!;
+        manager.PlayerPosition = geometry.RoomAnchorWorld(entrance);
+
+        // Record how far they actually travel. Without this the assertion below is only as
+        // good as the assumption that they moved, which is exactly the assumption that was
+        // wrong for a whole session.
+        var start = new Vector2[manager.Enemies.Count];
+        for (int i = 0; i < manager.Enemies.Count; i++) start[i] = manager.Enemies[i].Position;
 
         int worst = 0;
         for (int t = 0; t < 300; t++)
@@ -324,8 +491,16 @@ public sealed partial class WallCollisionTest : Node2D
             if (inWalls > worst) worst = inWalls;
         }
 
+        float moved = 0f;
+        for (int i = 0; i < manager.Enemies.Count && i < start.Length; i++)
+            moved += manager.Enemies[i].Position.DistanceTo(start[i]);
+        float meanMoved = manager.Enemies.Count > 0 ? moved / manager.Enemies.Count : 0f;
+
+        Check(meanMoved > 20f,
+              $"seed {seedText}: enemies actually moved (mean {meanMoved:F0}px over 5s) — " +
+              "the wall assertion below is not vacuous");
         Check(worst == 0,
-              $"seed {seedText}: no enemy body entered a wall over 300 ticks of pushing " +
+              $"seed {seedText}: no enemy body entered a wall while crossing the floor " +
               $"(worst tick had {worst})");
 
         manager.QueueFree();

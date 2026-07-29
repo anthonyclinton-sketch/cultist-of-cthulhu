@@ -39,6 +39,10 @@ public sealed partial class FloorRunner : Node2D
 
     private GeneratedFloor _floor = null!;
     private FloorGeometry _geometry = null!;
+
+    /// <summary>The floor's solid mask. Held so door seals can be written into it — the
+    /// hand-simulated systems only respect geometry that lives here.</summary>
+    private Core.TileMask _walls = null!;
     private readonly List<EnemyData> _roster = new();
 
     private readonly HashSet<int> _clearedRooms = new();
@@ -158,6 +162,7 @@ public sealed partial class FloorRunner : Node2D
         // walkable grid the collision shell comes from, so the hand-simulated systems and
         // Godot's physics agree about where the walls are.
         Core.TileMask walls = _geometry.BuildSolidMask();
+        _walls = walls;
 
         _enemyBullets = new BulletManager { Name = nameof(BulletManager), Bounds = world, Walls = walls };
         AddChild(_enemyBullets);
@@ -575,6 +580,41 @@ public sealed partial class FloorRunner : Node2D
 
     private int _restoreFailures;
 
+    /// <summary>
+    /// While a room is sealed, nothing that belongs to the fight may be outside it.
+    ///
+    /// This is the invariant behind "a room is a room". Door seals are StaticBody2D nodes, so
+    /// they only ever stopped the PLAYER — bullets and enemies both simulate their own
+    /// movement and could not see them, and enemies walked out of contested rooms through
+    /// doors the player could not follow them through. Reported from play, and nothing here
+    /// was watching for it: the autorun kills a room in a couple of seconds, which is rarely
+    /// long enough for anything to wander out.
+    ///
+    /// Checked as a POSITION, in the same spirit as the wall-collision gate — cheap, exact,
+    /// and it cannot be satisfied by the door logic merely being self-consistent.
+    /// </summary>
+    private void AuditSealedRoom()
+    {
+        if (!_encounterActive || _doorSeals.Count == 0) return;
+
+        PlacedRoom? room = FindRoom(_currentRoom);
+        if (room is null) return;
+
+        // Generous: the wall ring plus a tile, so a body resting against the inside of a
+        // wall is not reported as having escaped through it.
+        Rect2 bounds = _geometry.RoomRectWorld(room).Grow(FloorGeometry.Tile);
+
+        foreach (Enemy e in _enemies.Enemies)
+        {
+            if (!e.Alive || bounds.HasPoint(e.Position)) continue;
+
+            GD.PrintErr($" [FAIL] {e.Data.DisplayName} left sealed room {room.Template.Id} " +
+                        $"(at {e.Position}, room {bounds})");
+            _restoreFailures++;
+            return;   // one report per run is enough to fail the gate
+        }
+    }
+
     /// <summary>Discard the run and start another from the same seed.</summary>
     private void StartNewRun()
     {
@@ -596,6 +636,7 @@ public sealed partial class FloorRunner : Node2D
         TrackRoom();
         UpdatePendingSeal();
         SafetyUnstick();
+        if (_autorun) AuditSealedRoom();
 
         _enemies.PlayerPosition = _player.GlobalPosition;
         _enemies.PlayerVelocity = _player.Velocity;
@@ -741,6 +782,12 @@ public sealed partial class FloorRunner : Node2D
                         "This should be unreachable; the seal ordering has a gap.");
             body.QueueFree();
             _doorSeals.Remove(d.Index);
+
+            // The mask has to be opened too, or the door is visually and physically open for
+            // the player and still a wall for everything else. This path bypasses SealDoors,
+            // which is exactly the kind of second exit that leaves state half-updated.
+            _walls.SetSolidWorldRect(d.WorldRect, false);
+            _enemies.RefreshPathing();
             return;
         }
     }
@@ -1072,13 +1119,28 @@ public sealed partial class FloorRunner : Node2D
                 body.AddChild(new CollisionShape2D { Shape = new RectangleShape2D { Size = d.WorldRect.Size } });
                 AddChild(body);
                 _doorSeals[d.Index] = body;
+
+                // The StaticBody2D stops the PLAYER, because the player is the only thing in
+                // the game that uses Godot's physics. Writing the seal into the mask is what
+                // stops everything else — bullets and enemies both simulate their own
+                // movement and see only what is in here.
+                _walls.SetSolidWorldRect(d.WorldRect, true);
             }
             else if (_doorSeals.TryGetValue(d.Index, out StaticBody2D? body))
             {
                 body.QueueFree();
                 _doorSeals.Remove(d.Index);
+                _walls.SetSolidWorldRect(d.WorldRect, false);
             }
         }
+
+        // The flow field caches which cells are blocked, so it has to be told. Cheap enough
+        // to redo wholesale — this runs twice per room, not per tick.
+        _enemies.RefreshPathing();
+
+        // And free anything the closing door just entombed. A body that starts a tick
+        // overlapping solid ground can never move out of it.
+        if (sealed_) _enemies.EvictFromSolid(_geometry.RoomAnchorWorld(room));
     }
 
     // ---------------------------------------------------------------- Draw
