@@ -279,6 +279,7 @@ public sealed partial class FloorRunner : Node2D
         _content.FloorIndex = _run.FloorIndex;
         _content.Pickups = _pickups;
         _minimap.Floor = _floor;
+        _minimap.Enemies = _enemies;
 
         PlacedRoom entrance = _floor.FindRole(RoomRole.Entrance)!;
         _player.GlobalPosition = _geometry.RoomAnchorWorld(entrance);
@@ -614,6 +615,7 @@ public sealed partial class FloorRunner : Node2D
         HandleReverie();
         TickAutorun();
         _minimap.Revealed = _content.RevealFloor;
+        _minimap.ShowEnemies = _encounterActive;
 
         QueueRedraw();
         HandleDebugKeys();
@@ -1208,6 +1210,11 @@ public sealed partial class FloorRunner : Node2D
         // Stand ON something, so the capture shows the prompt as well as the furniture —
         // an untriggered prompt is precisely the part most likely to be silently broken.
         if (_content.Items.Count > 0) _player.GlobalPosition = _content.Items[0].Position + new Vector2(0f, 14f);
+
+        // Hold the map open for combat captures. At 130px the minimap's marks are two
+        // pixels across and a capture of them is unreadable, which defeats the point of
+        // taking one.
+        if (IsCombatRole(role)) Input.ActionPress("map");
 
         // The camera smooths toward the player, so a teleport leaves it a room behind for
         // most of a capture window. Snap it.

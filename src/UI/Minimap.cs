@@ -19,6 +19,21 @@ public sealed partial class Minimap : Node2D
     public PlayerController Player = null!;
     public HashSet<int> Cleared = null!;
 
+    /// <summary>The current room's occupants. Rebuilt per floor, so assigned per floor.</summary>
+    public Enemies.EnemyManager? Enemies;
+
+    /// <summary>
+    /// Set while an encounter is running. Enemy dots appear only for the contested room
+    /// and only until it is cleared.
+    ///
+    /// Gated on the ENCOUNTER rather than on "are any enemies alive", even though only the
+    /// current room ever holds any today. The two are the same thing right now and will
+    /// stop being the same thing the moment anything survives a room — and the version
+    /// where a stale dot lingers on a cleared room is worse than no dots, because the
+    /// player walks back to check.
+    /// </summary>
+    public bool ShowEnemies;
+
     private readonly HashSet<int> _seen = new();
 
     /// <summary>
@@ -35,6 +50,10 @@ public sealed partial class Minimap : Node2D
     private static readonly Color Visited = new(0.55f, 0.60f, 0.70f, 0.85f);
     private static readonly Color ClearedCol = new(0.35f, 0.55f, 0.50f, 0.85f);
     private static readonly Color PlayerCol = new("FFB347");
+
+    /// <summary>The same red the enemy health bars use, so "red mark = the thing hurting
+    /// you" means one thing across the whole UI.</summary>
+    private static readonly Color EnemyCol = new("D64545");
 
     public override void _Process(double delta) => QueueRedraw();
 
@@ -81,8 +100,50 @@ public sealed partial class Minimap : Node2D
                            glyph.ToString(), HorizontalAlignment.Left, -1, 11, new Color("14161C"));
         }
 
+        DrawEnemies(origin, b, scale, big);
+
+        // The player is drawn LAST so it is never buried under a pack. At two pixels a
+        // warm dot and a red one are not that far apart, and the one the player needs to
+        // find instantly is their own.
         Vector2 p = origin + new Vector2((playerTile.X - b.Position.X) * scale,
                                          (playerTile.Y - b.Position.Y) * scale);
-        DrawCircle(p, big ? 4f : 2.5f, PlayerCol);
+        DrawCircle(p, big ? 4.5f : 3f, PlayerCol);
+    }
+
+    /// <summary>
+    /// Live enemy positions in the contested room.
+    ///
+    /// NOT in docs/10 §3, which specifies the minimap as topology only — so this is a new
+    /// affordance rather than an implementation of a written one, and it is recorded as
+    /// such. What it changes is that a big room stops hiding its stragglers: rooms are now
+    /// four to eight times their original area and several screens across, so "the door is
+    /// still sealed and I cannot find the last acolyte" is a real failure state that the
+    /// design never had to consider when a room fitted on one screen.
+    ///
+    /// It shows position only, never count, health or type. The player still has to look at
+    /// the room to fight it.
+    /// </summary>
+    private void DrawEnemies(Vector2 origin, Rect2I b, float scale, bool big)
+    {
+        if (!ShowEnemies || Enemies is null) return;
+
+        float r = big ? 3f : 2f;
+
+        Vector2 ToMap(Vector2 world)
+        {
+            Vector2 tile = world / Rooms.FloorGeometry.Tile;
+            return origin + new Vector2((tile.X - b.Position.X) * scale, (tile.Y - b.Position.Y) * scale);
+        }
+
+        foreach (Enemies.Enemy e in Enemies.Enemies)
+        {
+            if (!e.Alive) continue;
+            DrawCircle(ToMap(e.Position), r, EnemyCol);
+        }
+
+        // The boss counts. It is the thing in the room that is trying to kill you, and
+        // leaving the one mark the player most wants off a threat display would read as the
+        // feature being broken. Larger, so it is distinguishable from its own adds.
+        if (Enemies.Boss is { Alive: true } boss) DrawCircle(ToMap(boss.Position), r * 1.9f, EnemyCol);
     }
 }
