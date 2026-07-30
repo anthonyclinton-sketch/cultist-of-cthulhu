@@ -2,7 +2,7 @@
 
 **Repo:** `github.com/anthonyclinton-sketch/cultist-of-cthulhu` (private) · branch `main`
 **Local:** `C:\Users\antho\Cultist Of Cthulu`
-**As of:** commit `df49124` + the floor-scaling commit, 42 commits · 67 C# files · 65 `.tres` · 16 debug scenes
+**As of:** commit `baceece`, 59 commits · 74 C# files / ~19,000 lines · 76 `.tres` · 17 debug scenes
 
 ---
 
@@ -19,8 +19,8 @@ running low changes what you can perceive rather than how hard you hit. Everythi
 why it is a *risk* rather than a proven mechanic.
 
 **The run:** six floors, Cthulhu at the bottom, five endings keyed to the Corruption you
-arrive with (docs/07 §5). Not an endless descent. **One floor of content exists**, so
-`RunState.FinalFloor` is 1 and beating Boss 1 wins the run.
+arrive with (docs/07 §5). Not an endless descent. **Two floors of content exist**, so
+`RunState.FinalFloor` defaults to 1 and `--floors=N` / `-StartFloor N` reach the rest.
 
 ---
 
@@ -34,18 +34,27 @@ C:\Users\antho\Downloads\Godot_v4.7-stable_mono_win64\Godot_v4.7-stable_mono_win
 
 `tools/gates.ps1` finds it automatically, or set `$env:GODOT`. **Always launch through the
 script** — a raw quoted path in PowerShell is a string literal, not a command, and silently
-does nothing.
+does nothing. That has now bitten three times, once in a handover written by the very session
+that had just fixed it.
+
+The script resolves the project root from its own location, so it works from **any** working
+directory when given by absolute path:
 
 ```bash
-pwsh ./tools/gates.ps1                       # every gate (~5 min)
-pwsh ./tools/gates.ps1 -Floor                # PLAY a run
-pwsh ./tools/gates.ps1 -Floor -Seed 23       # a seed that has a shop (70% roll on floor 1)
-pwsh ./tools/gates.ps1 -Floor -Floors 3      # a three-floor run
-pwsh ./tools/gates.ps1 -Floor -Corruption 3  # start Corrupted (3 awakens, 10 = Yellow Sign)
-pwsh ./tools/gates.ps1 -Floor -Autorun       # WATCH the run play itself
-pwsh ./tools/gates.ps1 -Arena                # the fixed-arena combat slice
-pwsh ./tools/gates.ps1 -ShowSeed 7           # render a floor as ASCII
-pwsh ./tools/gates.ps1 -Floor -MeteredDodge  # Build B, the M1 control arm
+pwsh "C:\Users\antho\Cultist Of Cthulu\tools\gates.ps1" -Floor
+```
+
+```bash
+pwsh ./tools/gates.ps1                        # every gate (~6 min)
+pwsh ./tools/gates.ps1 -Floor                 # PLAY a run
+pwsh ./tools/gates.ps1 -Floor -StartFloor 2   # begin ON the Wharfs, no floor-1 boss first
+pwsh ./tools/gates.ps1 -Floor -Floors 3       # a three-floor run
+pwsh ./tools/gates.ps1 -Floor -FloodDemo      # flood every room, to SEE the Tide
+pwsh ./tools/gates.ps1 -Floor -Corruption 3   # start Corrupted (3 awakens, 10 = Yellow Sign)
+pwsh ./tools/gates.ps1 -Floor -Autorun        # WATCH the run play itself
+pwsh ./tools/gates.ps1 -Arena                 # the fixed-arena combat slice
+pwsh ./tools/gates.ps1 -ShowSeed 7            # render a floor as ASCII
+pwsh ./tools/gates.ps1 -Floor -MeteredDodge   # Build B, the M1 control arm
 ```
 
 Controls: **WASD** move · **LMB** fire · **SPACE** dash · **R** recite · **RMB** banish ·
@@ -56,24 +65,24 @@ Ascension, **G** refills Sanity, **F7** cycles hit-stop weight, **F5** dumps tel
 `.godot/mono/temp/bin/Debug`. Building `-c Release` produces a binary Godot silently
 ignores, and the gates then measure stale code. Never "optimise" the build config.
 
+**Second trap, new:** the bullet-performance gate is sensitive to background load. If it
+fails oddly, look for stray `Godot_v4.7*` processes from an earlier windowed capture before
+believing it.
+
 ### Looking at a frame
 
 ```bash
-# any room role: Reward, Shop, Shrine, Secret, Hub, Boss, CombatHard, ...
-godot --path . res://scenes/debug/FloorRunner.tscn --seed 7 --room-demo=Shop \
-      --screenshot=out.png --screenshot-after=70
-
-godot --path . res://scenes/debug/FloorRunner.tscn --seed 7 --reverie-demo \
-      --screenshot=out.png --screenshot-after=70
-
-# mid-run: waves, telegraphs, Corruption effects
-godot --path . res://scenes/debug/FloorRunner.tscn --seed 42 --autorun --corruption=6 \
-      --screenshot=out.png --screenshot-after=344
+# any room ROLE or TEMPLATE ID: Reward, Shop, Boss, wharf_hydra_hall, wharf_tide_bend, ...
+godot --path . res://scenes/debug/FloorRunner.tscn --seed 3 --start-floor=2 \
+      --room-demo=wharf_hydra_hall --screenshot=out.png --screenshot-after=610
 ```
 
-`--room-demo` hides the F3 overlay, snaps the camera, stands the player on the first
-interactable and holds the map open for combat rooms. The overlay is hidden two frames
-early on purpose — `GetImage` reads the framebuffer rendered *before* the current tick.
+`--room-demo` accepts a template id as well as a role — by role, a floor with nine CombatMed
+rooms shows whichever the generator placed first, so the room you are working on is the one
+you cannot see. Given a template id it also suppresses the map, because naming a room means
+wanting to look at that room. It makes the player invulnerable (a capture is a photograph of
+geometry, not a survival test) and hides the F3 overlay two frames early on purpose —
+`GetImage` reads the framebuffer rendered *before* the current tick.
 
 ---
 
@@ -83,44 +92,54 @@ early on purpose — `GetImage` reads the framebuffer rendered *before* the curr
 `BulletManager` at **0.13ms p99 / 4096 bullets** against a 0.40 budget, zero steady-state
 allocation. Deterministic `Rng` (xoshiro256**). Frame-exact Blink Step.
 
-### M1 — Combat slice ✅ *systems complete, NOT playtested*
-Sanity economy, Ascension with the debt rule, Banish, 5 weapons, 5 enemies, pickups,
-telemetry, and the `--metered-dodge` control arm.
+### M1 — Combat slice ✅ *systems complete, NOT formally playtested*
+Sanity economy, Ascension with the debt rule, Banish, 5 weapons, pickups, telemetry, and the
+`--metered-dodge` control arm.
 
 ### M2 — Floor generation ✅ *gated*
 Authored flows → chain expansion → injection → cycle decomposition → beam-limited
-placement → corridor stitching → validation. **10,000 seeds, 0 failures, 0.07% fallback,
-flows used 34/34/32.** 32 templates with authored interiors, flood-validated so no obstacle
-can seal a room or block a door.
+placement → corridor stitching → validation. **10,000 seeds across all six floors, 0
+failures, 0.09% fallback.** 40 templates, flood-validated so no obstacle can seal a room.
 
-### M2 — Systems slice ✅ *built, NOT playtested beyond floor 1*
-- **Sigil Circle** (docs/04): 7×7 corner-cut grid, locked Heart, three ley lines rolled per
-  run, 7 polyomino shapes with rotation and mirroring, tag-based synergies, Reliquary,
-  dissolution. 20 sigils + 2 Hearts. Balance rules §8.1–§8.7 enforced in `Validate()`.
-- **The Reverie** (Tab): pauses, refuses to open while doors are sealed.
-- **Room content**: reward rooms with a choice of two (three at Corruption 3+), Gaunt's
-  stall with sigils/consumables/bench/reroll/Dissolution Bowl, four shrines, tiered chests.
-- **Inscriptions** (docs/03 §3): 15, projected into effective stats on read.
-- **Boss 1**: three phases, the Sanity-costing grab, timed adds, HUD boss bar.
-- **The run loop**: `RunState` on `GameRoot` carrying hearts, max Sanity, the Circle,
-  weapons and inscriptions, gold, keys, Corruption, telemetry, drop pity across floors.
-  Floor completion, a winnable Floor 1, a run summary.
-- **Corruption** (docs/02 §7): thresholds with real consequences — Awakened enemies at 3+,
-  a fourth bench offer, +1 enemy at 7+, the Yellow Sign at 10.
-- **Encounters** (docs/06 §6): the full Dread Budget formula including the Corruption and
-  player-power terms, and **waves** — 2–3 per big room, triggered on kills, never a timer.
-- **Floor scaling** (docs/05 §8, docs/02 §2, docs/07 §2): `Core/FloorScaling.cs` owns the
-  per-floor table the way `CorruptionTiers` owns the Corruption thresholds. Attack tokens 4→9
-  across floors 1–6, incoming damage ×1 on floors 1–2 and ×2 on floors 3+ (and ×2 from a
-  boss's phase 2 on any floor), room counts inside docs/07 §2's bands. Printed at the top of
-  every floor — all three of these were specified, believed present and absent for a
-  milestone precisely because no number ever surfaced anywhere.
+### M2 — Systems slice ✅ *built, played*
+Sigil Circle, the Reverie, room content, 15 inscriptions, the run loop (`RunState`),
+Corruption thresholds, the Dread Budget with kill-triggered waves.
+
+### Floor 1 — Arkham Undercroft ✅
+33 room templates, 5 enemies, The Thing on the Doorstep.
+
+### Floor 2 — The Drowned Wharfs ✅ *structurally complete, lightly played*
+- **The Tide** (docs/07 §3). `TideCycle` is WHEN — one 20s clock, run-scoped, a raised cosine
+  so the extremes dwell. `TideField` is WHERE — per-tile flood levels, a sibling of
+  `TileMask` rather than a bit inside it. Neither knows about the other, which is what makes
+  "synchronised across the floor" true by construction rather than by everyone remembering to
+  use the same number.
+- **Water is authored per template** as five ints (`x, y, w, h, flood level`), and is never
+  solid — making it solid at high tide would seal rooms on a timer, which is the one thing
+  the generator's validation exists to prevent.
+- **The asymmetry:** the same water that costs the player ×0.7 buys a Deep One ×2.0. Applied
+  at the single integration point in `Enemy.Move`, not at the nine sites reading `MoveSpeed`.
+- **The dash is slowed too** (×0.7 velocity; frame data untouched) or the tide is optional —
+  a free dodge crossed water faster than wading *and* with 14 i-frames.
+- **6 Wharf combat rooms**, each a different water shape: a bend, two parallel runs, a centre
+  pool, a full-width cut, a crossing, a corner. Every combat room on floor 2 has water.
+- **Deep One and Brine Priest.** `Bestiary` routes enemies by floor; `RoomLibrary` and
+  `FloorTag` route rooms; `BossRoster` routes bosses.
+- **Mother Hydra's Brood** in `wharf_hydra_hall`: a matriarch submerged at high tide and a
+  consort submerged at low, so exactly one is hittable at any moment. A submerged boss is not
+  registered as a bullet target at all, so shots pass *through* it rather than stopping dead
+  on something that takes no damage.
+
+### Quality of life
+- **×2 movement out of combat**, guarded by five independent measures (§7.6).
+- **Nothing spawns within 90px of the player**, wave one telegraphs like the rest, and a wave
+  is spread across the room rather than stacked on one anchor.
 
 ---
 
 ## 4. The gates
 
-All in `tools/gates.ps1` and `.github/workflows/gates.yml`. **All currently green.**
+18 gates in `tools/gates.ps1` and `.github/workflows/gates.yml`. **All currently green.**
 
 | Gate | Asserts |
 |---|---|
@@ -129,139 +148,113 @@ All in `tools/gates.ps1` and `.github/workflows/gates.yml`. **All currently gree
 | Banish | `ClearRadius` leaves no survivors; cost gates on band |
 | **Autorun** | A whole run played headlessly: every room, the boss, the summary |
 | **Autorun — 3 floors** | A descent does not silently reset the run |
-| **Encounters** | Budget responds; tier-weighting beats cell count; waves never timed |
+| **Death drill** ×2 | A run that ends badly still ENDS — between rooms, and mid-boss |
+| **Encounters** | Budget responds; waves never timed; nothing spawns on the player; a wave is spread |
 | **Blink frame data** | 2/14/8 and a 31-frame cycle, measured from the controller |
 | **Corruption** | Severity never falls as Corruption rises |
+| **The Tide** | The cycle, the shoreline, the wade/swim asymmetry, the dash, the brood |
 | **Boss 1** | Every phase reached and firing; the grab connects and is rate-limited |
 | **Wall collision** | Nothing occupies solid ground; sealed rooms hold; enemies move |
-| Floor generation | 10k seeds **across all six floors**, every invariant, fallback ≤1%, every floor inside its docs/07 §2 room band, and the count demonstrably *follows* the floor |
+| Floor generation | 10k seeds over 6 floors, every invariant, room-count bands, fallback ≤1% |
 | Playable floor smoke | Boots and runs on several seeds |
 | Engine warning budget | Zero — a per-frame warning reads as a freeze |
 | Bullet performance | 4096 bullets, sim p99 ≤0.4ms, zero alloc |
 | Determinism | Same seed → identical state, 1800 ticks, six seeds |
-| Economy sim *(advisory)* | Metric 1 / 9 / 5b in target |
+| Economy sim *(advisory)* | Metrics 1 / 9 / 5b in target |
 
 ### Know the blind spots, and know they move
 
-**A green suite is not a played build.** Every bug found in the last play session survived a
-fully green suite: rooms emptying on re-entry, no gold in the HUD, the dodge cancelling
-itself into 82% invulnerability, enemies walking through locked doors, Corruption invisible
-below its first threshold. About thirty minutes of play beat fourteen gates.
+**A green suite is not a played build.** This session a fully green suite shipped: enemies
+spawning on top of the player, an entire wave stacked on one anchor, and 254MB of exception
+log per run. All three were found by playing. Every gate passed throughout.
 
-**A test can lie more comfortably than the game can.** Twice this session:
+**The three bugs the gates could not see, and why:**
 
-- The enemy wall-collision assertion — *"no enemy body entered a wall over 300 ticks of
-  pushing"* — held because **nothing was pushing**. It aimed the flow field at a point
-  outside the floor; `FlowField` clamps the target into its grid, the clamped cell is solid,
-  and a BFS from a blocked cell cannot spread, so every enemy got a zero direction and stood
-  still. Both affected tests now assert that their subjects actually move.
-- The Blink single-dodge measurement read 3/49/3 frames because synthetic `Input` actions
-  report "just pressed" on every manually-driven tick — Godot only clears that when its own
-  input frame advances. `TryBeginBlink()` is now callable directly.
+- **Enemies spawning on the player.** The minimum-distance rule existed and sat *below* an
+  early return that the first wave took. The one wave that arrives while you are still walking
+  through a door was the one that never checked where you were.
+- **A whole wave on one anchor.** Anchor choice scanned every anchor and returned the closest
+  acceptable one; its `index` argument rotated where the scan *began*, and rotating a scan
+  changes tie-breaking, never a minimum. Waves 2 and 3 had done this since they were written —
+  it only became visible when wave 1 joined them.
+- **254MB of log per run.** `GetTree().Quit()` does not stop the world, so a capture trigger
+  changed from `==` to `<` re-entered on every remaining tick and threw each time. Invisible in
+  every way that matters: after the useful output, during shutdown, exit code 0, PNG already
+  written. **No gate reads the log directory.**
 
-**When you add an assertion, add its control.** The seal test proves it can detect an escape
-by running the doors open first. Without that it would have reported success while measuring
-motionless enemies.
+**When you add an assertion, add its control — and prove the assertion fails.** Twice this
+session an assertion was deliberately broken to watch it go red: the exploration-speed audit
+(sabotaged, 1024 discrepancies) and the tide's swim multiplier. A third, *"the harness was
+actually shot at"*, turned out to be **flaky** — it depended on enemy aim, failed on a healthy
+build on seed 7, and had to be replaced twice before landing on spawn counts.
 
-The room-band check has one for the same reason: **every band in docs/07 §2 overlaps its
-neighbour** — floor 1 is 11–14 and floor 4 is 14–18 — so a generator ignoring the floor index
-could sit at 14 rooms forever and pass all six bands. It did ignore the floor index, for a
-milestone. The paired check asserts the mean actually *moves* from floor 1 to floor 4.
-
-**A third one, added since:** the sweep swept `floorIndex: 1` only, while the generator ignored
-the floor index entirely. It was measuring the single case that could not reveal the bug. If a
-system takes a parameter, the gate has to vary it.
+**Beware assertions that derive their expectation from the code.** The tide gate checks the
+swim multiplier against `Tune`, so setting that constant to 1 makes it print
+`x1.00 (want x1.00)` and pass. Only the absolute check beside it catches a bad number.
 
 ---
 
 ## 5. What to build next
 
-### 5.1 The floor-scaling residue — two decisions, no code
+### 5.1 Finish floor 2's content — the obvious next step
 
-The three phantoms are fixed (§3). What is left is judgement, not work:
+Four Wharf enemies from docs/05 §3 are unbuilt: **Hybrid Fisherman** (hooks that pull),
+**Drowned Chorus** (three linked; killing one buffs the others), **Anglerhead** (douses the
+room lights). The Chorus and the Anglerhead carry new behaviour; the Fisherman is data against
+systems that already exist.
 
-1. **`RollInjections` now trims a floor's optional stock to fit its room band**, dropping the
-   second secret room and then the shrine, never the reward room or the shop. It has to,
-   because the base flows are 9–10 nodes and full stock is 5 more rooms, so a 10-node flow
-   with everything reaches 15 on a floor whose band tops out at 14 — and expansion can only
-   add. This makes docs/07 §2's length a harder promise than docs/06 §3.3's "1–3 secret
-   rooms". Reasonable, and still a design call taken to satisfy arithmetic. The alternative
-   was trimming `undercroft_figure_eight` from 10 base nodes to 9.
-2. **Floor 5 has no band and is generated unconstrained**, so it now runs 12–21 rooms.
-   docs/07 §2 says "open" and means a different generator (the Plateau of Leng, docs/06 §8).
-   `FloorScaling.TryRoomCount` returns false for it deliberately rather than inventing a
-   range, so the gate reports it and asserts nothing. Correct for now; it will need the real
-   answer when floor 5 is built.
+**Non-combat Wharf rooms do not exist**, so a Wharf floor still has a cellar for a shop, a
+cellar for a shrine and a cellar for an entrance. `PickTemplate` prefers the floor's theme and
+falls back, which is what makes that work — a strict filter would fail generation on every
+floor whose set is incomplete, which is all of them.
 
-**One thing worth reading before touching the generator again.** Expansion now spends its
-budget on **acyclic chains before chains inside loops**, and that single ordering is worth
-more than any amount of search budget. Lengthening a chain in a loop makes a cycle that has
-to close in 2D; lengthening an acyclic chain grows a snake, which always fits. Asked for the
-17–18 room floors floors 3–4 want, per 10,000 seeds: `undercroft_descent` (both expandable
-nodes acyclic) fell back 0 times, `undercroft_ring` (one of two) 4 times,
-`undercroft_figure_eight` (both inside loops) **124 times**. Raising `MaxBacktracks` was the
-obvious first guess and it is the wrong one — doubling it to 24000 moved the fallback rate
-1.35% → 1.15% and cost 75% more sweep time. Ordering the spend, plus giving the figure eight
-an expandable acyclic approach, took it to **0.09%** and made the sweep *faster* (98s against
-135s) because far fewer attempts are wasted.
+**The Ferryman of the Manuxet** (docs/05 §7) — floor 2's Warden, offering passage for +2
+Corruption or a fight. Not built; no Warden system exists at all.
 
-### 5.2 Rebalance the difficulty curve — *with* floor 2, not before
+### 5.2 The difficulty curve — half done, and the remaining half is content
 
-`EncounterTest` prints the curve every run. Today, on a medium room at Corruption 0:
+The floor term now **multiplies** rather than adds (`FloorScaling.DreadMultiplier`). Measured
+effect on how much of a floor runs at maximum pressure:
 
 ```
-floor 1   first room  47   tenth room  226
-floor 6   first room 102   tenth room  281
+floor 1    never (280/320)  ->  never (280/320)
+floor 3    5% of the floor  ->  35%
+floor 4    11%              ->  50%
+floor 6    NEVER (298/320)  ->  53%
 ```
 
-It escalates, but **floor 1's tenth room outweighs floor 6's first by more than two to
-one** — the within-floor ramp is 13/room against a floor lift of only 8/floor, so the run
-reads as six separate ramps rather than one descent, and floor 6's peak is just 24% above
-floor 1's. Compounding it: `playerPowerMult` is clamped at ×1.35 (docs/06 §6.1) while the
-player's real power over six floors grows far more than that, so late floors may well play
-*easier* than floor 1.
+**But the measurement reframed the item.** Five of six floors sit AT `ThreatCapacity` — the
+formula asks for more Dread and the room physically cannot hold it. Floor 1 already peaks at
+280 of 320 and plays well there, so **there is no headroom above a well-tuned floor 1 for five
+more floors of "more enemies"**. Per-room Dread is not where the descent can live.
 
-The levers are `DreadBudget`'s `baseline` terms. **Do this alongside floor 2** — it is
-tuning against a felt experience, and tuning a curve nobody can play is guesswork. The gate
-prints before/after directly.
+Past the clamp only two levers remain: **bigger rooms**, or **enemies worth more per point**.
+Floors 3–6 have no authored rooms, so that is where the headroom has to come from. The
+encounter gate prints where the ceiling binds per floor — read it before touching the formula
+again, because tuning `baseline` now mostly moves a number that gets clamped.
 
-**Two of the numbers above have moved since this was written, in the same direction.** Attack
-tokens now rise 4→9, which raises real pressure per room without touching the budget; and
-room counts now follow the floor, so the "tenth room" comparison is no longer like-for-like —
-floor 1 reaches ~13 rooms and floor 4 ~16, meaning the within-floor ramp runs *longer* on
-deep floors and the gap is a little wider than 24%. Neither closes it. Re-read the gate's
-printed curve before tuning anything; do not tune against the block above.
+### 5.3 Floors 3–6
 
-### 5.3 Floor 2 — The Drowned Wharfs, and Mother Hydra's Brood
-
-The biggest structural step, and the one that makes everything above meaningful. docs/07
-§3 and docs/05 §7. 13–16 room templates, the tidal cycle, ~10 new enemies, and a two-boss
-fight where the tide decides which one is vulnerable.
-
-It is also the first real test of the run loop: `RunState`, the floor scaling in the loot
-tables and shop prices, and the descent are all built and have only ever run against the
-Undercroft at a raised floor index.
+`FloorScaling` already scales attack tokens (4→9), damage (×2 from floor 3), room counts and
+Dread across all six. `Bestiary`, `RoomLibrary`, `BossRoster` and `FloorScaling.ThemeTag` all
+take a floor and return content, so adding a floor is authoring plus one row in each table.
 
 ### 5.4 Save/load
 
-On the M2 checklist and not built — a run ends when the process does. `RunState` was
-written to be the thing a save file serialises and deliberately holds no scene references,
-so this is mostly a serialization job. Low urgency while a run is one 5–8 minute floor;
-it becomes important the moment a run is 45 minutes.
+On the M2 checklist and not built — a run ends when the process does. `RunState` holds no
+scene references and now records `StartFloor`, so this is mostly serialisation. A run is ~12
+minutes at two floors; it becomes urgent at six.
 
 ### 5.5 The M1/M2 playtest — deferred by the owner, deliberately
 
-Design in `docs/11-roadmap.md` § "M1 TEST DESIGN": 10–12 testers, ~25 min each, **both
-arms** (`-Floor` and `-Floor -MeteredDodge`), counterbalanced. Deferred until more of the
-game exists, which it now does.
+Design in `docs/11-roadmap.md` § "M1 TEST DESIGN": 10–12 testers, ~25 min each, **both arms**,
+counterbalanced. Watch for metric 6 (does anyone Open the Eye unprompted?), metric 7 (does the
+free dodge beat the metered one?), and the Pathogenic failure mode — *"being forced to stop
+shooting breaks the rhythm."*
 
-Watch for metric 6 (does anyone Open the Eye unprompted?), metric 7 (does the free dodge
-beat the metered one?), and the qualitative Pathogenic failure mode — *"being forced to
-stop shooting breaks the rhythm."* Three testers saying that routes to fallback F1
-regardless of the numbers.
-
-**New:** nobody has played a floor with a Circle in it for more than one floor, and the
-wave pacing (50/30/20 front-loaded, 30%-remaining trigger) has never been felt by anyone.
+**Telemetry is finally fit for this.** It records the room a run died in and what killed it,
+which it did not before: a failed run used to write every room survived and nothing at all
+about the one that ended it.
 
 ---
 
@@ -270,82 +263,83 @@ wave pacing (50/30/20 front-loaded, 30%-remaining trigger) has never been felt b
 `docs/AUDIT-spec-vs-code.md` § "M2 sweep" is the authority; re-run it at the end of every
 milestone. The ones that matter:
 
-- **Directional sigils do nothing directionally.** The facing is stored, rotates with the
-  tile and is drawn, and no effect reads it. docs/04 §3.2's orientation layer is scaffolding.
-- **The Reverie's "live diff panel" is not a diff.** It shows the state after committing,
-  not what a placement would gain and lose (docs/04 §7).
-- **Inscription overwrite and transfer.** `Weapon.ReplaceInscription` exists and nothing
-  calls it; transfer was the review's fix for the Inscriptions-vs-ammo-rotation conflict.
-- **`Tune.cs` still holds gameplay constants**, violating docs/09 §5. Sigils, inscriptions,
-  bosses, patterns and rooms are all `.tres` now; the player and Sanity numbers are not.
-- **The economy sim reports metric 5 as `[OUT]` on every run.** It was retired and replaced
-  by 5b. A permanent false failure in gate output teaches people to stop reading output —
-  delete it.
-- **The F3 overlay reports ~54KB/tick allocation in `FloorRunner`** and labels it
-  `REGRESSION`. Verified pre-existing (checked against a stashed baseline), and docs/09 §8
-  claims zero. `BulletManager` itself measures zero, so it is elsewhere in the scene tick.
-  Nobody has chased it.
+- **`Element` is authored and read by nothing.** `Element = Brine` is set on patterns, and no
+  bullet carries an element — so Brine attacks do not Drench, and
+  `PlayerController.IncomingLightningMultiplier` is a property with no caller. Wiring it means
+  widening the bullet struct the M0 performance gate measures: a decision, not a tidy-up.
+  **This is the fifth "specified, believed present, absent" in this project.** The other four
+  were attack tokens, damage scaling, the enemy roster and `FloorTag` — all four found by
+  someone going to look, none by a gate.
+- **An unexplained illegal-instruction exit.** Seen once, on a floor-3 death, then never again
+  — because the run started winning, not because anything was fixed. The death path is now
+  gated both ways (16 deliberate deaths, no crash), so a regression has somewhere to land.
+- **Directional sigils do nothing directionally.** docs/04 §3.2's orientation layer is
+  scaffolding: the facing is stored, rotates with the tile and is drawn, and no effect reads it.
+- **The Reverie's "live diff panel" is not a diff.** It shows the state after committing, not
+  what a placement would gain and lose (docs/04 §7).
+- **Inscription overwrite and transfer.** `Weapon.ReplaceInscription` exists and nothing calls it.
+- **`Tune.cs` still holds gameplay constants**, violating docs/09 §5.
+- **The F3 overlay reports ~54KB/tick allocation in `FloorRunner`** and labels it `REGRESSION`.
+  Verified pre-existing; `BulletManager` itself measures zero. Nobody has chased it.
 - **Unbroken Seals** — M2 checklist, not built. Gates floor 7 access (docs/07 §4).
-- **Real room templates.** 32 exist and are rectangles with authored obstacle blocks. The
-  hand-built TileMap pipeline docs/11 puts on the critical path at ~4/day does not exist.
+- **Real room templates.** 40 exist and are rectangles with authored obstacle blocks. The
+  hand-built TileMap pipeline docs/11 puts on the critical path does not exist — but
+  `wharf_tide_bend` proved the rectangle system *can* express a channel, so the fork is now a
+  choice rather than a guess.
 
-Deliberately deferred to M3 and recorded: the **Hound of Tindalos** (Corruption 5+, a new
-agent that phases through walls), **Sovereign bosses** (10), **Corrupted Doors** (1+), both
-**Corruption reduction sinks**, and **all audio** — docs/05 R3 telegraphs are currently
-visual only, and R8's per-shot sounds do not exist.
+Deferred to M3 and recorded: the **Hound of Tindalos**, **Sovereign bosses**, **Corrupted
+Doors**, both **Corruption reduction sinks**, and **all audio**.
 
 ---
 
 ## 7. Working agreements that earned their place
 
-1. **Look at a frame before believing anything visual.** Six bugs have hidden behind healthy
-   counters. This session: the boss health bar drew fifty pixels off the top of the viewport,
-   and the wave telegraph was the same red ring an Awakened enemy wears.
-2. **Fix the bug class, not the bug.** Sanity zero-detection became one `SetCurrent` funnel;
-   wall collision became one `TileMask` shared by every hand-simulated system; door seals
-   became part of that same mask rather than a second thing to remember.
-3. **Parents tick before children.** Any state a child sets during its tick and a parent
-   reads is invisible unless it is a consume-once latch. Four bugs so far: `AliveCount`,
-   Ascension's trigger, the boss phase change, the boss death.
-4. **A passing check is not a fair one.** The generation sweep asserted every flow was
-   *reachable* and was satisfied while one flow served 60% of floors.
-5. **Add the control with the assertion.** See §4.
-6. **Measure before diagnosing, and report the number.** "Some doors stay open" was one
-   corridor per floor plus a class nobody had considered; the dodge was 17 frames against a
-   documented 31.
+1. **Look at a frame before believing anything visual.** The waterline drew in exactly one room
+   per floor and looked correct, because `--flood-demo` makes every room identical. A stressor
+   that makes everything the same is good at proving code runs and bad at proving it is right.
+2. **Fix the bug class, not the bug.** `Boss.Submerged` folded into the existing `Invulnerable`
+   property rather than sitting beside it, so the tide rule reached `TakeDamage`, target
+   registration, contact damage and the HUD for free. A parallel flag would have needed four
+   updates by hand, and the one that got missed would have been the interesting bug.
+3. **Parents tick before children.** Any state a child sets during its tick and a parent reads
+   is invisible unless it is a consume-once latch.
+4. **A passing check is not a fair one.** "Every floor inside its docs/07 §2 band" passes on a
+   generator that ignores the floor index entirely, because every band overlaps its neighbour.
+   It needs the companion check that the distributions actually moved.
+5. **Add the control with the assertion, and prove the assertion fails.** Sabotage it and watch
+   it go red. Three assertions this session were wrong in ways only that revealed.
+6. **Measure before diagnosing, and report the number.** Raising `MaxBacktracks` was the obvious
+   fix for a rising fallback rate; it bought 0.2 points for 75% more sweep time. The real cause
+   was that expansion spent its budget on chains inside loops — acyclic chains first took it to
+   0.09% and made the sweep *faster*.
 7. **When a gate breaks after a content change, the content usually drifted** — but check
-   whether the *assertion* encoded a coincidence. `BanishTest` asserted "cost ≥ ceiling
-   floor" because both happened to be 45; the wall gate asserted "the room centre is
-   walkable" until a room was authored with a table through the middle of it. Third case:
-   the 3-floor autorun asserted gold **never decreases** across a stair, which held only
-   because the harness's shop purchases had never once exceeded its post-stair earnings. The
-   gate's stated purpose is catching a *reset*, so it now asserts conservation — gold plus
-   what the harness spent — and prints the spend.
-8. **Commit messages carry the reasoning**, including wrong turns and corrected estimates.
-9. **`_run` is a save file, not live state.** `RunState` receives the player's gold, hearts
-   and Circle at a `SaveTo`, so reading `_run.Gold` mid-floor gets you the value from the last
-   floor boundary. The first version of that autorun fix instrumented `_run.Gold` around a
-   purchase and confidently reported "0 spent" — two reads of the same stale number.
+   whether the *assertion* encoded a coincidence. "The grab must cost Sanity" failed Mother
+   Hydra for not having a mechanic she was never given: one boss's design written as universal
+   law.
+8. **A singular assumption is cheap to fix before there is a second thing.** The enemy roster,
+   the template pool and the boss slot were each a flat list with no floor concept, and each was
+   fixed *before* the second floor's content rather than after.
+9. **Commit messages carry the reasoning**, including wrong turns and corrected estimates.
+10. **End every piece of work with the command to run it**, routed through `gates.ps1`. If no
+    switch exists for the thing just built, add one rather than explaining a workaround.
 
 ---
 
 ## 8. Open design questions
 
-- **Recovery-cancelling the dodge is currently disallowed**, and docs/02 §4 contains both
-  sides: its Cancel row permits it "at double cost", a brake fallback F4 set to zero, while
-  the same section calls the 24-frame + 0.12s cycle an invariant that "must be protected".
-  I protected the cycle. If dash-cancel chaining is wanted as traversal tech, that decision
-  and the §4 wording both need revisiting.
-- **Ascension is very hard to reach in normal play.** Press `K` to force it. The boss grab
-  is now a second route in, deliberately.
+- **Recovery-cancelling the dodge is currently disallowed**, and docs/02 §4 contains both sides.
+  The cycle was protected. Note the out-of-combat ×2 walk now makes walking faster than
+  dash-chaining, which removes most of the traversal argument for allowing the cancel.
+- **Ascension is very hard to reach in normal play.** Press `K` to force it.
 - **docs/04 §2.1 claims 41 usable cells; its own diagram has 37.** The build follows the
-  diagram, so the intended oversupply pressure is slightly *higher* than §6 and docs/08 §8
-  reason about. The number needs correcting, not the shape.
-- **Sigil effects are a fixed modifier vocabulary, not a scripting hook.** Right for 20
-  sigils, will not survive 70 — several docs/04 §5 entries (turrets, splitting projectiles,
-  element swapping) are absent because they cannot be expressed. Decide before the pool grows.
-- **The player outruns every enemy projectile** after the speed rescale. The lever if it
-  needs correcting is pattern *density*, not bullet speed.
-- **Fable's review** (`HANDOVER-FOR-REVIEW.md` §9) reclassified the Sanity bet from
-  "borrowed and safe" to "novel and unvalidated". Still true, and the Circle is now a second
-  unvalidated bet on top of it.
+  diagram, so the intended oversupply pressure is slightly higher than §6 reasons about. The
+  number needs correcting, not the shape.
+- **Sigil effects are a fixed modifier vocabulary, not a scripting hook.** Right for 20 sigils,
+  will not survive 70. Decide before the pool grows.
+- **Floor 2's difficulty is unvalidated past a couple of playthroughs.** The tide, the Deep
+  One's ×2 swim and the ×2 damage from floor 3 all landed this session without a tuning pass.
+  If floor 2 feels punishing, the first lever is the Deep One's `TideSwimSpeedMultiplier`, not
+  the wade — the wade number is what makes the tide legible, the swim is what makes it lethal.
+- **Fable's review** (`HANDOVER-FOR-REVIEW.md` §9) reclassified the Sanity bet from "borrowed
+  and safe" to "novel and unvalidated". Still true, and the Circle and the Tide are two more
+  unvalidated bets stacked on top of it.
