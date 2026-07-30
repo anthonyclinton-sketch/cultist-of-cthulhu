@@ -723,8 +723,30 @@ public sealed partial class PlayerController : CharacterBody2D
         // move-speed modifiers (the Unravelled band's +10%, and any future mobility
         // sigil). Distance is therefore derived from the frame data rather than authored
         // — see Tune.BlinkEffectiveDistance for why the old authored value was wrong.
+        // WATER SLOWS THE DASH TOO — the same x0.7 wade and x0.8 Drenched the walk takes
+        // (docs/07 §3, docs/03 §Elements).
+        //
+        // It did not, and that made the tide optional. The dodge is free post-F4, so an
+        // unslowed dash crosses water at ~177px/s of chained movement against 101px/s of
+        // wading, with 14 invulnerable frames thrown in: the counter-play to floor 2's entire
+        // mechanic was to hold the dash button. Slowed, chained dashing in water is ~124px/s
+        // against a Deep One's 192, so the asymmetry the floor is built on survives contact
+        // with the dodge.
+        //
+        // VELOCITY ONLY. docs/02 §4 calls the 24-frame + 0.12s cycle an invariant that "must
+        // be protected", and HANDOVER §8 records that being a deliberate decision rather than
+        // an accident; scaling speed leaves 2/14/8 and every invulnerable frame exactly where
+        // BlinkTest measures them. The split is the design: water costs you DISTANCE, not
+        // SAFETY, so the dash is still a full-value panic button in a channel — it just no
+        // longer outruns the tide.
+        //
+        // Sampled ONCE, here, because _blinkVelocity is set once. That makes "dash out of the
+        // water" a real escape — you launched from dry ground, you get the full distance —
+        // and "dash while already wading" a real cost. A rule the player can see, rather than
+        // a mid-dash speed change nobody can perceive.
         float dashSpeed = Tune.PlayerMoveSpeed * Tune.BlinkSpeedMultiplier
-                          * Sanity.MoveSpeedMultiplier * Circle.Effects.MoveSpeedMultiplier;
+                          * Sanity.MoveSpeedMultiplier * Circle.Effects.MoveSpeedMultiplier
+                          * TerrainSpeedMultiplier * DrenchedSpeedMultiplier;
 
         // Tekeli-li adds DISTANCE, which at fixed frame data means adding speed. Converting
         // through the dash's own duration keeps the authored number honest — "+2 units" has

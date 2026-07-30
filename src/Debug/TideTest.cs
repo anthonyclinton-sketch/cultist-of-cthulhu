@@ -46,6 +46,7 @@ public sealed partial class TideTest : Node2D
         TestDryFloorCostsNothing();
         TestWadersAreSlowedAndSwimmersAreNot();
         TestDrenchedLingers();
+        TestTheDashDoesNotOutrunTheTide();
         TestSwimmersAreOnlyOnWetFloors();
         TestEveryRoomGetsAWaterline();
 
@@ -311,6 +312,86 @@ public sealed partial class TideTest : Node2D
     private static void StepDrenched(Player.PlayerController player, float seconds)
     {
         for (int t = 0; t < Mathf.CeilToInt(seconds / Dt); t++) player.TickDrenched(Dt);
+    }
+
+    // ---------------------------------------------------------------- The dash
+
+    /// <summary>
+    /// The Blink Step is slowed by water, and its FRAME DATA is not touched.
+    ///
+    /// Both halves are the assertion. Water slowing the dash is what stops the tide being
+    /// optional — the dodge is free post-F4, so an unslowed dash crossed a channel faster
+    /// than wading and with invulnerability, which made "hold SPACE" the counter-play to the
+    /// whole floor. And docs/02 §4 calls the 24-frame + 0.12s cycle an invariant that must be
+    /// protected, so a fix that bought the first property by spending the second would be a
+    /// worse bug than the one it replaced.
+    ///
+    /// This is the gap that existed for four commits with the tide fully gated: every
+    /// assertion was about walking, so nothing looked wrong. It was found by playing.
+    /// </summary>
+    private void TestTheDashDoesNotOutrunTheTide()
+    {
+        var dry = new Player.PlayerController();
+        AddChild(dry);
+        var wet = new Player.PlayerController();
+        AddChild(wet);
+
+        // Same everything except the ground underfoot.
+        wet.TerrainSpeedMultiplier = Tune.TideWadeSpeedMultiplier;
+
+        (float dryDist, int dryFrames, int dryInvuln) = DriveDash(dry);
+        (float wetDist, int wetFrames, int wetInvuln) = DriveDash(wet);
+
+        Check(dryDist > 1f, $"control: a dash on dry ground covers ground ({dryDist:F1}px)");
+
+        float ratio = dryDist > 0f ? wetDist / dryDist : 0f;
+        Check(Mathf.Abs(ratio - Tune.TideWadeSpeedMultiplier) < 0.05f,
+              $"water shortens the dash to x{ratio:F2} (want x{Tune.TideWadeSpeedMultiplier:F2}) " +
+              $"— {dryDist:F1}px dry -> {wetDist:F1}px wading");
+
+        // THE OTHER HALF. Distance may move; the cycle may not (docs/02 §4).
+        Check(dryFrames == wetFrames,
+              $"and the cycle is identical wet or dry ({dryFrames} vs {wetFrames} frames)");
+        Check(dryInvuln == wetInvuln && wetInvuln == Tune.BlinkInvulnFrames,
+              $"a dash in water keeps all {Tune.BlinkInvulnFrames} invulnerable frames " +
+              $"({wetInvuln}) — water costs distance, not safety");
+
+        dry.QueueFree();
+        wet.QueueFree();
+    }
+
+    /// <summary>
+    /// Drive one dash to completion, reporting distance covered, total frames and
+    /// invulnerable frames.
+    ///
+    /// Through the real _PhysicsProcess and TryBeginBlink, exactly as BlinkTest does — and
+    /// for the reason recorded in HANDOVER §4, which is that synthetic Input reports "just
+    /// pressed" on every manually driven tick and made the first frame measurement in this
+    /// project read 3/49/3 against a real 2/14/8.
+    /// </summary>
+    private static (float Distance, int Frames, int Invuln) DriveDash(Player.PlayerController p)
+    {
+        if (!p.TryBeginBlink()) return (0f, -1, -1);
+
+        // Distance is INTEGRATED FROM VELOCITY rather than read off the transform. A bare
+        // controller has no collision shape — the owning scene adds it — and MoveAndSlide
+        // against no shape in a physics world nothing has stepped moves the body zero pixels,
+        // which the first version of this reported as a 0.0px dash on dry land. Velocity is
+        // also the exact quantity the multiplier scales, so this measures the thing under
+        // test rather than a consequence of it two systems downstream.
+        float distance = 0f;
+        int frames = 0, invuln = 0;
+
+        while (frames < 240)
+        {
+            p._PhysicsProcess(Dt);
+            if (p.Phase == Player.BlinkPhase.None) break;
+            if (p.Phase == Player.BlinkPhase.Invulnerable) invuln++;
+            distance += p.Velocity.Length() * Dt;
+            frames++;
+        }
+
+        return (distance, frames, invuln);
     }
 
     // ---------------------------------------------------------------- The waterline
