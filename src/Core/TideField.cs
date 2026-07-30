@@ -48,6 +48,11 @@ public sealed class TideField
     /// Wharfs. Lets the whole system be skipped rather than ticked to no effect.</summary>
     public bool AnyWater { get; private set; }
 
+    /// <summary>Water tiles on the floor. Reported at floor start, because "the tide did
+    /// nothing" and "there was no water" look identical from outside and have completely
+    /// different causes.</summary>
+    public int WaterTiles { get; private set; }
+
     public TideField(int width, int height, float tileSize, Vector2 origin)
     {
         Width = width;
@@ -71,7 +76,10 @@ public sealed class TideField
     {
         if (tx < 0 || ty < 0 || tx >= Width || ty >= Height) return;
         byte v = (byte)Mathf.Clamp(level, 0, MaxFloodLevel);
-        _flood[ty * Width + tx] = v;
+        ref byte slot = ref _flood[ty * Width + tx];
+        if (slot > 0 && v == 0) WaterTiles--;
+        else if (slot == 0 && v > 0) WaterTiles++;
+        slot = v;
         if (v > 0) AnyWater = true;
     }
 

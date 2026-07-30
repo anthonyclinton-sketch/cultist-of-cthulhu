@@ -384,7 +384,10 @@ public sealed partial class FloorRunner : Node2D
         // The scaling is printed because all three of its parts were specified, believed
         // present and absent for a milestone. A number that never appears anywhere is a
         // number nobody can notice is wrong.
-        GD.Print($"[FloorRunner] {FloorScaling.Describe(_run.FloorIndex)}");
+        GD.Print($"[FloorRunner] {FloorScaling.Describe(_run.FloorIndex)}" +
+                 (_tideField.AnyWater
+                     ? $" · tide over {_tideField.WaterTiles} tiles, {Tune.TidePeriod:0}s cycle"
+                     : " · no water"));
         GD.Print($"[FloorRunner] floor {_run.FloorIndex}/{_run.FinalFloor} — " +
                  $"{_floor.Rooms.Count} rooms, flow '{_floor.FlowId}', " +
                  $"{_geometry.PunchedDoors} flush doors + {_geometry.Corridors} corridors, " +

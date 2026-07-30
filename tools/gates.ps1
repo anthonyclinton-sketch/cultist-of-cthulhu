@@ -6,6 +6,7 @@
         ./tools/gates.ps1 -Floor -Floors 3      play a three-floor run
         ./tools/gates.ps1 -Floor -Autorun       WATCH the run loop play itself
         ./tools/gates.ps1 -Floor -Corruption 3  start Corrupted (3 = Awakened, 10 = Yellow Sign)
+        ./tools/gates.ps1 -Floor -FloodDemo     flood every room, to SEE the Tide (docs/07 §3)
         ./tools/gates.ps1 -Arena                play the M1 combat slice (fixed arena)
         ./tools/gates.ps1 -Arena -MeteredDodge  play Build B (the M1 control arm)
         ./tools/gates.ps1 -Play                 the bullet stress arena
@@ -28,6 +29,7 @@ param(
     [switch]$Autorun,
     [int]$Floors = 1,
     [double]$Corruption = 0,
+    [switch]$FloodDemo,
     [switch]$SkipBuild
 )
 
@@ -73,6 +75,10 @@ if ($Floor) {
     if ($Corruption -gt 0) {
         $extra += "--corruption=" + $Corruption.ToString([System.Globalization.CultureInfo]::InvariantCulture)
     }
+    # The Undercroft authors no water, so the Tide is invisible on floor 1 by design. This
+    # synthesises a channel into every room so the mechanic can be watched and walked into
+    # before a Wharf template exists — same purpose as -Corruption above.
+    if ($FloodDemo) { $extra += "--flood-demo" }
     & $godot --path $root res://scenes/debug/FloorRunner.tscn --seed $Seed @extra
     exit $LASTEXITCODE
 }
