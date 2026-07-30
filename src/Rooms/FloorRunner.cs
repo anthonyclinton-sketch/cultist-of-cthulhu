@@ -164,6 +164,28 @@ public sealed partial class FloorRunner : Node2D
     private bool _floodDemo;
 
     /// <summary>
+    /// --death-drill: run until the harness has fought a little, then kill it, and assert the
+    /// run ENDS rather than merely stops.
+    ///
+    /// THE GAP THIS FILLS, and it is one I opened. Making the autorun invulnerable turned it
+    /// into a structure test, which was right — but it also removed the only thing in the
+    /// project that ever drove OnDeath -> EndRun -> summary -> exit. Before that change the
+    /// autorun died occasionally and covered the path by accident; afterwards nothing did.
+    ///
+    /// That path is also where this session saw an illegal-instruction exit, once, on a
+    /// floor-3 death, which then "stopped reproducing" — because the run started winning, not
+    /// because anything was fixed. A crash that can no longer be observed is not a crash that
+    /// has gone away.
+    ///
+    /// The death is FORCED rather than waited for. Letting enemies do it is a test whose
+    /// runtime depends on their aim, and this project has already been bitten by an assertion
+    /// that depended on whether something happened to connect.
+    /// </summary>
+    private bool _deathDrill;
+    private bool _deathDrillDuringBoss;
+    private bool _deathDrillArmed;
+
+    /// <summary>
     /// Flood the lower half of every room in stepped bands, 4 nearest the middle down to 1 at
     /// the bottom wall, so the shoreline sweeps up the room as the tide comes in rather than
     /// the whole floor blinking wet. Debug only — it writes water into rooms that were never
@@ -203,6 +225,39 @@ public sealed partial class FloorRunner : Node2D
         _enemies.TideLevel = level;
         _enemies.Water = _tideField;
         _floorTiles.TideLevel = level;
+    }
+
+    /// <summary>
+    /// Kill the harness once it has actually played some of a run.
+    ///
+    /// Waits for two cleared rooms so the death happens to a run with STATE in it — gold, a
+    /// Circle, telemetry records — rather than to a fresh one standing in the entrance. A
+    /// death path that works on an empty run and corrupts a populated one is exactly the kind
+    /// of bug this exists to catch.
+    /// </summary>
+    private void TickDeathDrill()
+    {
+        if (!_deathDrill || _deathDrillArmed) return;
+
+        if (_deathDrillDuringBoss)
+        {
+            // Wait for the fight to be genuinely under way — phase 2, so adds have spawned
+            // and the boss has changed state at least once. Dying to a boss in its opening
+            // pose exercises less than dying to one mid-fight.
+            if (_boss is not { Alive: true } b || b.Phase < 2) return;
+            _deathDrillArmed = true;
+            GD.Print($"[death drill] killing the harness mid-boss, phase {b.Phase}, " +
+                     $"{_enemies.AliveCount} adds alive.");
+        }
+        else
+        {
+            if (_roomsCleared < 2) return;
+            _deathDrillArmed = true;
+            GD.Print($"[death drill] killing the harness after {_roomsCleared} rooms, " +
+                     $"{_player.Gold} gold, {_player.Circle.UsedCells} cells.");
+        }
+
+        _player.DebugKill();
     }
 
     private void BuildManagers()
@@ -385,7 +440,9 @@ public sealed partial class FloorRunner : Node2D
         //
         // Hits still land and are still counted, so lethality remains visible. See
         // FinishAutorun, which asserts the harness was actually shot at.
-        if (_autorun) _player.DebugInvulnerable = true;
+        //
+        // NOT during the death drill, which exists precisely to exercise dying.
+        if (_autorun && !_deathDrill) _player.DebugInvulnerable = true;
 
         if (_autorun) AssertRestored();
         _player.OnFloorBegan();
@@ -608,6 +665,8 @@ public sealed partial class FloorRunner : Node2D
             else { GD.PrintErr($" [FAIL] {what}"); failures++; }
         }
 
+        if (_deathDrill) { FinishDeathDrill(Check, ref failures); return; }
+
         GD.Print("================================================================");
         GD.Print(" AUTORUN");
         GD.Print("================================================================");
@@ -685,6 +744,50 @@ public sealed partial class FloorRunner : Node2D
             HideOverlayForCapture();
             return;
         }
+
+        GetTree().Quit(failures == 0 ? 0 : 1);
+    }
+
+    /// <summary>
+    /// The death drill's verdict — the run ENDED, rather than merely stopped.
+    ///
+    /// Deliberately not the autorun's assertions with the outcome flipped. Almost none of
+    /// them apply: nothing was won, no floor was cleared, no stair was taken. What has to be
+    /// true of a death is that the run reached a settled, reported, exitable state — the
+    /// outcome recorded, the telemetry written rather than lost, the floor stopped simulating
+    /// behind the summary, and the hit-stop time scale released.
+    ///
+    /// That last one is not hypothetical. A dead player used to publish PendingHitStop
+    /// forever, the scene re-requested a hit stop every frame, and Engine.TimeScale locked at
+    /// 0.05 — the game ran at 1/20 speed with a player who could not act, and it was reported
+    /// as a freeze. AscensionTest guards the player's half of that in isolation; this is the
+    /// only thing that checks it through a whole run.
+    /// </summary>
+    private void FinishDeathDrill(System.Action<bool, string> Check, ref int failures)
+    {
+        GD.Print("================================================================");
+        GD.Print(" DEATH DRILL");
+        GD.Print("================================================================");
+
+        Check(_deathDrillArmed, "the harness was actually killed (control: the drill fired)");
+        Check(_run.Outcome == RunOutcome.Dead,
+              $"the run recorded a death (outcome {_run.Outcome})");
+        Check(_run.RoomsCleared > 0,
+              $"the death happened to a run with state in it ({_run.RoomsCleared} rooms cleared)");
+        Check(_run.Telemetry.TotalRooms > 0,
+              $"telemetry survived the death ({_run.Telemetry.TotalRooms} room records)");
+
+        // The floor must stop. A room that keeps ticking behind the summary can still spawn,
+        // shoot and — before EndRun cleared them — kill a player who is already dead.
+        Check(_enemies is null || _enemies.AliveCount == 0,
+              $"the floor stopped simulating ({_enemies?.AliveCount ?? 0} enemies still alive)");
+        Check(Mathf.IsEqualApprox((float)Engine.TimeScale, 1f),
+              $"the time scale was released (TimeScale {Engine.TimeScale:F3}) — " +
+              $"a stuck hit stop is indistinguishable from a freeze");
+
+        GD.Print("================================================================");
+        GD.Print(failures == 0 ? " DEATH DRILL: PASS" : $" DEATH DRILL: FAIL ({failures})");
+        GD.Print("================================================================");
 
         GetTree().Quit(failures == 0 ? 0 : 1);
     }
@@ -820,6 +923,7 @@ public sealed partial class FloorRunner : Node2D
             : FloorScaling.DamageMultiplier(_run.FloorIndex);
 
         TickTide(dt);
+        TickDeathDrill();
 
         TickBoss(dt);
         if (_encounterActive) _director.Tick(dt, _player.GlobalPosition);
@@ -1341,6 +1445,16 @@ public sealed partial class FloorRunner : Node2D
             // Synthesise water into every room, so the tide can be looked at before a single
             // Wharf template exists. Same purpose as --corruption=.
             else if (arg == "--flood-demo") _floodDemo = true;
+            // Drive a run to a DEATH and assert it ends cleanly. See TickDeathDrill.
+            // `--death-drill=boss` dies mid-boss-fight instead of between rooms; that is a
+            // different path — adds in flight, a boss bar drawn, a Boss node still ticking —
+            // and it is the one the unexplained illegal-instruction exit came from.
+            else if (arg == "--death-drill") _deathDrill = true;
+            else if (arg.StartsWith("--death-drill="))
+            {
+                _deathDrill = true;
+                _deathDrillDuringBoss = arg["--death-drill=".Length..] == "boss";
+            }
             // Start the run already Corrupted, so the thresholds can be seen without
             // Banishing forty times to reach them.
             else if (arg.StartsWith("--corruption=") &&

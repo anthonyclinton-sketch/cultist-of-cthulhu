@@ -78,22 +78,27 @@ public sealed partial class EconomySim : Node
             {
                 anyFail |= !Report("metric 1 — time below 40", r.BelowForty, 0.25f, 0.45f);
                 anyFail |= !Report("metric 9 — ladder fires", r.LadderFire, 0.70f, 1.01f);
-                // Metric 5's PREMISE is stale and this is not a tuning failure.
+                // METRIC 5 IS GONE. It printed [OUT] on every single run for two milestones.
                 //
                 // Fable defined "median Sanity net per room, target ±15" to detect
-                // income/cost mis-tuning, and it was written before the Lucid Ceiling
-                // existed (option D in the same review, untested at the time). With a
-                // ceiling, in-combat net is structurally negative BY DESIGN: kill income
-                // is capped, and the corridor top-up between rooms is what closes the gap.
-                // A player who ends every room down 28 and is refilled to the ceiling
-                // before the next one is in perfect equilibrium — and metric 5 calls that
-                // a failure.
+                // income/cost mis-tuning, and it was written before the Lucid Ceiling existed
+                // (option D in the same review, untested at the time). With a ceiling,
+                // in-combat net is structurally negative BY DESIGN: kill income is capped and
+                // the corridor top-up between rooms closes the gap. A player who ends every
+                // room down 28 and is refilled before the next one is in perfect equilibrium,
+                // and metric 5 called that a failure — for ever, in red, in output people are
+                // supposed to read.
                 //
-                // WASTED INCOME is the correct detector now. It measures the fraction of
-                // kill Sanity thrown away at the cap:
+                // Keeping it "for reference" behind a (STALE) label was the wrong compromise.
+                // A permanent false failure does not teach the reader that one line is stale;
+                // it teaches them the whole report is noise. The median is still printed below
+                // as CONTEXT, with no target and no verdict, which is what it actually is.
+                //
+                // WASTED INCOME is the correct detector and it replaced it:
                 //   high  -> income over-tuned relative to what the ceiling admits
                 //   ~zero + player still bleeding -> income genuinely under-tuned
-                Report("metric 5 — median net/room (STALE, see note)", r.MedianNet, -15f, 15f);
+                GD.Print($"   median net/room {r.MedianNet,8:F2}   (context — no target; " +
+                         $"negative in combat is by design under the Lucid Ceiling)");
                 anyFail |= !Report("metric 5b — income wasted at ceiling", r.WastedFraction, 0.10f, 0.45f);
             }
         }

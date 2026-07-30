@@ -131,6 +131,15 @@ Write-Host "`n### AUTORUN — THREE FLOORS (descent carries the run) ###"
 & $godot --headless --path $root res://scenes/debug/FloorRunner.tscn --seed $Seed --autorun --floors=3 --quit-after 60000
 if ($LASTEXITCODE -ne 0) { $failed += "autorun (3 floors)" }
 
+# Dying is a path too, and nothing exercised it once the autorun was made invulnerable —
+# including the one place this project has ever seen an illegal-instruction exit. Both
+# variants: between rooms, and mid-boss with a fight in flight.
+Write-Host "`n### DEATH DRILL — A RUN THAT ENDS BADLY STILL ENDS ###"
+& $godot --headless --path $root res://scenes/debug/FloorRunner.tscn --seed $Seed --autorun --death-drill --quit-after 60000
+if ($LASTEXITCODE -ne 0) { $failed += "death drill" }
+& $godot --headless --path $root res://scenes/debug/FloorRunner.tscn --seed $Seed --autorun --death-drill=boss --quit-after 60000
+if ($LASTEXITCODE -ne 0) { $failed += "death drill (mid-boss)" }
+
 Write-Host "`n### ENCOUNTERS — DREAD BUDGET AND WAVES ###"
 & $godot --headless --path $root res://scenes/debug/EncounterTest.tscn
 if ($LASTEXITCODE -ne 0) { $failed += "encounters" }
