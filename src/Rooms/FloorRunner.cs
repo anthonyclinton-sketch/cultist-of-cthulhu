@@ -1613,11 +1613,42 @@ public sealed partial class FloorRunner : Node2D
         }
     }
 
-    /// <summary>Capture the viewport and quit. The one place that does it, so the normal path
-    /// and the deadline cannot disagree about what a capture is.</summary>
+    private bool _captured;
+
+    /// <summary>
+    /// Capture the viewport and quit. The one place that does it, so the normal path and the
+    /// deadline cannot disagree about what a capture is.
+    ///
+    /// LATCHED, and that is not belt-and-braces — it is a fix for 254MB of log per run.
+    ///
+    /// GetTree().Quit() does not stop the world; the frame finishes and several more physics
+    /// ticks run before the process actually exits. When the trigger was `_frameCount ==
+    /// _screenshotAfter` that did not matter, because equality can only be true once. Changing
+    /// it to `<` — to stop a paused tree hanging the capture forever — made it true on EVERY
+    /// remaining tick, so this ran again and again on the way out.
+    ///
+    /// Where the viewport has no texture to give, each of those re-entries threw a
+    /// NullReferenceException that Godot's bridge caught and logged with a full managed stack
+    /// trace. Four runs produced roughly a gigabyte of logs. The exception was invisible
+    /// because it happened after the useful output, during shutdown, in a process that was
+    /// exiting anyway with the correct code.
+    /// </summary>
     private void CaptureAndQuit()
     {
-        Image shot = GetViewport().GetTexture().GetImage();
+        if (_captured) return;
+        _captured = true;
+
+        Viewport? vp = GetViewport();
+        Texture2D? tex = vp?.GetTexture();
+        if (tex is null)
+        {
+            GD.PrintErr("[screenshot] no viewport texture to capture — headless without a " +
+                        "rendering device cannot produce an image.");
+            GetTree().Quit(1);
+            return;
+        }
+
+        Image shot = tex.GetImage();
         Error e = shot.SavePng(_screenshotPath);
         GD.Print($"[screenshot] {_screenshotPath} → {e}");
         GetTree().Quit(e == Error.Ok ? 0 : 1);
