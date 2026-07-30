@@ -879,6 +879,62 @@ public sealed partial class FloorRunner : Node2D
     /// Checked as a POSITION, in the same spirit as the wall-collision gate — cheap, exact,
     /// and it cannot be satisfied by the door logic merely being self-consistent.
     /// </summary>
+    /// <summary>
+    /// Nothing to fight, by five independent measures — the gate on the exploration speed
+    /// bonus (Tune.ExplorationSpeedMultiplier).
+    ///
+    /// FIVE, not one, because the request was explicitly that this must never bleed into a
+    /// fight and each of these catches a different way the obvious check would miss:
+    ///
+    ///   _encounterActive     the room is fighting, whatever is currently breathing.
+    ///   _director.Active     covers the WAVE TELEGRAPH. For 0.6s a wave exists, is committed,
+    ///                        and has spawned nothing — so AliveCount is 0 and every naive
+    ///                        "no enemies alive" test says the room is safe. Between waves it
+    ///                        is 0 again. This is the check that matters most and the one an
+    ///                        obvious implementation would not have.
+    ///   AliveCount           the ordinary case.
+    ///   AnyBossAlive         bosses are NOT counted in AliveCount — the room-clear logic has
+    ///                        the same carve-out — so a boss fight reads as an empty room to
+    ///                        anything that only asks about enemies.
+    ///   _doorSeals           the doors are shut. If the room will not let you leave, it is a
+    ///                        fight, whatever the other four think. The Reverie already
+    ///                        refuses to open on this same condition (docs/04).
+    ///
+    /// Any one of them false is enough. A conservative predicate costs a player some speed in
+    /// a corridor; a permissive one lets them outrun a boss.
+    /// </summary>
+    private bool OutOfCombat =>
+        !_encounterActive
+        && (_director is null || !_director.Active)
+        && (_enemies is null || (_enemies.AliveCount == 0 && !_enemies.AnyBossAlive))
+        && _doorSeals.Count == 0;
+
+    /// <summary>
+    /// Prove the bonus is never live during a fight, every tick of every autorun.
+    ///
+    /// A runtime audit rather than a unit test, for the reason HANDOVER §4 gives about tests
+    /// that lie: the interesting failure is not "the predicate is wrong" but "some path sets
+    /// the multiplier and forgets to clear it", and only the running game exercises the paths.
+    /// It rides the autorun the same way AuditSealedRoom does.
+    /// </summary>
+    private void AuditExplorationSpeed()
+    {
+        if (!_autorun) return;
+        if (_player.ExplorationSpeedMultiplier <= 1f) return;
+
+        bool fighting = _encounterActive
+                        || (_director is not null && _director.Active)
+                        || (_enemies is not null && (_enemies.AliveCount > 0 || _enemies.AnyBossAlive))
+                        || _doorSeals.Count > 0;
+        if (!fighting) return;
+
+        GD.PrintErr($" [FAIL] exploration speed x{_player.ExplorationSpeedMultiplier:F1} was live " +
+                    $"during combat — encounter {_encounterActive}, director " +
+                    $"{_director?.Active}, alive {_enemies?.AliveCount}, " +
+                    $"boss {_enemies?.AnyBossAlive}, seals {_doorSeals.Count}");
+        _restoreFailures++;
+    }
+
     private void AuditSealedRoom()
     {
         if (!_encounterActive || _doorSeals.Count == 0) return;
@@ -957,8 +1013,11 @@ public sealed partial class FloorRunner : Node2D
             ? FloorScaling.BossDamageMultiplier(_run.FloorIndex, bossPhase)
             : FloorScaling.DamageMultiplier(_run.FloorIndex);
 
+        _player.ExplorationSpeedMultiplier = OutOfCombat ? Tune.ExplorationSpeedMultiplier : 1f;
+
         TickTide(dt);
         TickDeathDrill();
+        AuditExplorationSpeed();
 
         TickBoss(dt);
         if (_encounterActive) _director.Tick(dt, _player.GlobalPosition);

@@ -38,6 +38,18 @@ public static class Tune
     /// </summary>
     public const float PlayerMoveSpeed = 9.0f * PixelsPerUnit;
     public const float PlayerFiringSpeedMult = 0.82f;
+
+    /// <summary>
+    /// Traversal speed with nothing to fight — a quality-of-life multiplier so crossing a
+    /// cleared floor is not an exercise in holding a direction.
+    ///
+    /// NOT a combat number, and the whole design of it is the guarantee that it never becomes
+    /// one: see Rooms.FloorRunner.OutOfCombat for the predicate and the autorun audit that
+    /// fails the build if it is ever true while a fight is live. Rooms are 4-8x their
+    /// first-pass area (docs/06 §4) and a floor is now up to 18 of them, so the walk between
+    /// fights grew a great deal more than the fights did.
+    /// </summary>
+    public const float ExplorationSpeedMultiplier = 2f;
     public const float PlayerAccelTime = 0.06f;          // seconds 0 -> max
     public const float PlayerDecelTime = 0.05f;          // no ice, ever
 

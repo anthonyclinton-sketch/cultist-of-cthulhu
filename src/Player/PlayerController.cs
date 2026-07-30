@@ -149,6 +149,18 @@ public sealed partial class PlayerController : CharacterBody2D
     /// knows it is slow here.</summary>
     public float TerrainSpeedMultiplier { get; set; } = 1f;
 
+    /// <summary>
+    /// Traversal speed with nothing to fight. 1 during any encounter — the owning scene is
+    /// the only thing that knows what a fight is, and it pushes this exactly as it pushes the
+    /// terrain and damage multipliers.
+    ///
+    /// DEFAULTS TO 1, deliberately. Every other multiplier here defaults to its neutral value
+    /// so a scene that forgets to set it gets the unmodified game; this one defaults to
+    /// neutral so that a scene that forgets gets the SAFE game. The failure mode of a stale
+    /// exploration bonus is a player sprinting through a boss fight.
+    /// </summary>
+    public float ExplorationSpeedMultiplier { get; set; } = 1f;
+
     private float _drenchedFor;
 
     /// <summary>docs/03 §Elements — wet, and it lingers. Separate from wading because it
@@ -642,8 +654,12 @@ public sealed partial class PlayerController : CharacterBody2D
     {
         Vector2 input = ReadMoveInput();
 
+        // WALK ONLY — not applied to the Blink Step. Out of combat that makes walking (288px/s)
+        // faster than chaining dashes (177px/s), which is the right way round: dashing stops
+        // being the way to cross a room, so the dodge-spam docs/02 §4 worries about has one
+        // less reason to exist and the dash stays a combat verb.
         float speed = Tune.PlayerMoveSpeed * Sanity.MoveSpeedMultiplier * Circle.Effects.MoveSpeedMultiplier
-                      * TerrainSpeedMultiplier * DrenchedSpeedMultiplier;
+                      * TerrainSpeedMultiplier * DrenchedSpeedMultiplier * ExplorationSpeedMultiplier;
         if (Input.IsActionPressed("fire")) speed *= Tune.PlayerFiringSpeedMult;
 
         Vector2 target = input * speed;
