@@ -32,6 +32,21 @@ public static class DreadBudget
     public const float PowerMin = 0.85f;
     public const float PowerMax = 1.35f;
 
+    /// <summary>Dread in an untouched first room, before any multiplier.</summary>
+    public const float BaseDread = 34f;
+
+    /// <summary>Added per room already cleared on this floor — the within-floor ramp.
+    /// Unchanged from the old formula on purpose: the ramp's SHAPE was never the problem, its
+    /// dominance over the floor term was, and that is fixed by multiplying rather than by
+    /// flattening a curve the player currently enjoys.</summary>
+    public const float RampPerRoom = 13f;
+
+    /// <summary>True when the authored room ceiling, not the formula, decided the budget.
+    /// Reported by the encounter gate: once the clamp binds, a deeper floor cannot get any
+    /// harder by asking for more Dread, and the lever becomes nastier enemies per point
+    /// rather than more points.</summary>
+    public static bool LastWasCapped { get; private set; }
+
     // Weights for the power score. FIRST PASS — the doc names the four inputs and the clamp
     // and does not name their relative weight, so these are chosen to put a fresh run near
     // the floor and a well-built late run at the cap, and they want a tuning pass against
@@ -120,7 +135,13 @@ public static class DreadBudget
     public static float For(int floorIndex, int roomsCleared, RoomTemplate template, RoomRole role,
                            float corruption, float playerPower)
     {
-        float baseline = 26f + floorIndex * 8f + roomsCleared * 13f;
+        // The floor MULTIPLIES; the room count adds. It used to be two addends — floor worth
+        // 8 and rooms worth 13 — which over a thirteen-room floor gave the within-floor ramp
+        // ~117 against the descent's 8. See Core.FloorScaling.DreadMultiplier for the
+        // measurements; the short version is that the run read as six ramps rather than one
+        // descent, and floor 6's hardest room was 24% above floor 1's.
+        float baseline = (BaseDread + roomsCleared * RampPerRoom)
+                         * Core.FloorScaling.DreadMultiplier(floorIndex);
 
         float budget = baseline
                        * SizeClass(template.WidthTiles, template.HeightTiles)
@@ -131,6 +152,7 @@ public static class DreadBudget
         // The authored ceiling still wins. docs/06 §4 prices ThreatCapacity as a function of
         // the room's own floor area and cover, so it is the one number that knows whether the
         // room can physically hold what the formula asked for.
+        LastWasCapped = budget > template.ThreatCapacity;
         return Mathf.Min(template.ThreatCapacity, budget);
     }
 }

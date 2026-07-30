@@ -158,13 +158,24 @@ public sealed partial class EncounterTest : Node2D
 
         var first = new float[7];
         var last = new float[7];
+        int capped = 0;
 
         for (int floor = 1; floor <= 6; floor++)
         {
+            // Each floor's OWN last room, not a fixed tenth. Floors 3 and 4 run to 17 and 18
+            // rooms (docs/07 §2), so sampling room 10 everywhere reported a deep floor's
+            // MIDPOINT against a shallow floor's end and made the descent look flatter than
+            // it is. The room count is part of the difficulty curve, not separate from it.
+            int roomCount = Core.FloorScaling.TryRoomCount(floor, out _, out int max) ? max : 15;
+
             first[floor] = DreadBudget.For(floor, 0, med, RoomRole.CombatMed, 0f, 1f);
-            last[floor] = DreadBudget.For(floor, 10, med, RoomRole.CombatMed, 0f, 1f);
-            GD.Print($"   floor {floor}   first room {first[floor],6:F0}   " +
-                     $"tenth room {last[floor],6:F0}");
+            last[floor] = DreadBudget.For(floor, roomCount - 1, med, RoomRole.CombatMed, 0f, 1f);
+            bool wasCapped = DreadBudget.LastWasCapped;
+            if (wasCapped) capped++;
+
+            GD.Print($"   floor {floor}   first {first[floor],6:F0}   " +
+                     $"last (room {roomCount,2}) {last[floor],6:F0}" +
+                     (wasCapped ? "   [AT ROOM CAPACITY]" : ""));
         }
 
         Check(first[6] > first[1],
@@ -172,14 +183,50 @@ public sealed partial class EncounterTest : Node2D
         Check(last[6] > last[1],
               $"and ends harder ({last[1]:F0} -> {last[6]:F0})");
 
-        // The shape check the print exists for: if the within-floor ramp swamps the
-        // floor-over-floor lift, a late room on floor 1 is harder than an early room on floor
-        // 6 and the run does not read as a descent. Reported, not failed — the docs give no
-        // rate, so this is a tuning judgement rather than a broken invariant.
-        if (last[1] > first[6])
+        // THE SHAPE. The descent should be one curve, not six ramps — floor 6's peak being a
+        // rounding error above floor 1's means the whole game happens on floor 1's difficulty.
+        // Reported with a number rather than asserted against one, because the docs give no
+        // target and this is a tuning judgement.
+        float peakLift = last[1] > 0f ? last[6] / last[1] : 0f;
+        GD.Print($"   peak lift floor 1 -> 6: x{peakLift:F2}");
+
+        // WHERE THE DESCENT ACTUALLY LIVES, once the ceiling binds.
+        //
+        // Peak Dread per room stops being the measure the moment rooms saturate — and they
+        // saturate from floor 2, because floor 1 is already tuned to nearly fill its rooms
+        // (280 of a 320 capacity by its last room) and it plays well there. There is simply
+        // no headroom above a well-tuned floor 1 for five more floors of "more enemies".
+        //
+        // What still varies, and what a player actually feels, is HOW MUCH OF THE FLOOR is
+        // spent at that ceiling. Floor 1 reaches it in its last room or not at all; a deep
+        // floor arrives at maximum pressure a third of the way in and stays there. That is a
+        // real descent, and it is invisible in a peak-versus-peak comparison.
+        GD.Print("   rooms until the ceiling binds (the real descent once rooms saturate):");
+        for (int floor = 1; floor <= 6; floor++)
         {
-            GD.Print($"   [note] floor 1's tenth room ({last[1]:F0}) outweighs floor 6's first " +
-                     $"({first[6]:F0}) — the within-floor ramp dominates the floor lift.");
+            int roomCount = Core.FloorScaling.TryRoomCount(floor, out _, out int max) ? max : 15;
+            int at = -1;
+            for (int r = 0; r < roomCount; r++)
+            {
+                DreadBudget.For(floor, r, med, RoomRole.CombatMed, 0f, 1f);
+                if (!DreadBudget.LastWasCapped) continue;
+                at = r + 1;
+                break;
+            }
+
+            GD.Print(at < 0
+                ? $"     floor {floor}   never — peaks at {last[floor]:F0} of {med.ThreatCapacity:F0}"
+                : $"     floor {floor}   room {at,2} of {roomCount,2}   " +
+                  $"({(roomCount - at + 1) * 100 / roomCount}% of the floor at maximum pressure)");
+        }
+
+        if (capped > 0)
+        {
+            GD.Print($"   [note] {capped} of 6 floors hit '{med.Id}'s capacity " +
+                     $"({med.ThreatCapacity:F0}). Past that, depth cannot buy difficulty with " +
+                     $"Dread — only bigger rooms, or enemies worth more per point, can. Floors " +
+                     $"3-6 have no authored rooms yet; that is where the headroom has to come " +
+                     $"from.");
         }
     }
 

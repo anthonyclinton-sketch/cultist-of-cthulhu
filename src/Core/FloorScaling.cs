@@ -103,6 +103,28 @@ public static class FloorScaling
         _ => "undercroft",
     };
 
+    /// <summary>
+    /// What depth multiplies a room's Dread by — docs/06 §6.1's <c>base(floor)</c>, as a
+    /// factor rather than an addend.
+    ///
+    /// THE PROBLEM THIS FIXES. The baseline was <c>26 + floor*8 + roomsCleared*13</c>: two
+    /// ADDITIVE terms, one worth 8 per floor and one worth 13 per room. Over a thirteen-room
+    /// floor the room term contributes ~117 and the floor term 8, so the within-floor ramp
+    /// outweighed the whole descent by an order of magnitude. Measured, on the same room at
+    /// Corruption 0: floor 1's tenth room came to 226 Dread and floor 6's FIRST to 102, and
+    /// floor 6's peak was just 24% above floor 1's. Six ramps, not one descent.
+    ///
+    /// Multiplying scales the ramp WITH depth instead of racing it. A floor still gets harder
+    /// as you cross it — that pacing is right and the player feels it — but a deep floor's
+    /// version of that ramp is twice as steep as a shallow floor's.
+    ///
+    /// NOT expected to make floor N's first room harder than floor N-1's last. Arriving on a
+    /// new floor should breathe; that reset is deliberate roguelike pacing, and HANDOVER §5.2's
+    /// complaint is about the PEAKS, not the seams.
+    /// </summary>
+    public static float DreadMultiplier(int floor) =>
+        1f + (Godot.Mathf.Clamp(floor, 1, DeepestFloor) - 1) * 0.2f;
+
     /// <summary>One line for the run summary and the F3 overlay.</summary>
     public static string Describe(int floor) =>
         $"floor {floor}: {AttackTokens(floor)} tokens, " +
