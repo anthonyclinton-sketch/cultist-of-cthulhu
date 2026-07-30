@@ -273,61 +273,85 @@ public sealed class EncounterDirector
     /// </summary>
     private const float MinSpawnDistance = 90f;
 
-    /// <summary>
-    /// Pick where one enemy appears.
-    ///
-    /// THE BUG THIS FIXES, reported from play: an enemy spawned on top of the player the
-    /// instant they entered a room and took a heart off them. The minimum-distance rule
-    /// existed, but only inside the telegraphed branch — the first wave took an early return
-    /// three lines up and read straight out of a shuffled anchor grid with no reference to
-    /// where the player was standing. The one wave that spawns while the player is walking
-    /// through the door was the one wave that did not check.
-    ///
-    /// The distance rule is now unconditional and the FALLBACK respects it too. The old
-    /// fallback returned `_anchors[index % count]` when nothing satisfied the constraints,
-    /// which in a small or heavily-obstructed room is exactly the case where that arbitrary
-    /// anchor is likely to be the one the player is standing on.
-    /// </summary>
-    private Vector2 ChooseAnchor(int index, bool preferVisible, Vector2 playerPos)
-    {
-        if (_anchors.Count == 0)
-            return _room is not null ? _geometry.RoomAnchorWorld(_room) : playerPos;
+    /// <summary>Anchors that satisfy the rules for the current wave. A field so choosing a
+    /// wave's positions allocates nothing.</summary>
+    private readonly List<Vector2> _acceptable = new();
 
+    /// <summary>
+    /// Choose where a whole WAVE appears — <paramref name="count"/> distinct points.
+    ///
+    /// PER WAVE, NOT PER ENEMY, and that is the fix for a real bug: the old version chose one
+    /// enemy at a time by scanning every anchor and returning the closest acceptable one to
+    /// the player. Its `index` argument only rotated where the scan began, which changes
+    /// tie-breaking and never changes a minimum — so every enemy in a wave got the SAME
+    /// anchor. Fourteen bodies on one point, reported from play as enemies arriving in a
+    /// clump. Telegraphed waves had always done it; routing wave one through the same path
+    /// is what made it visible, because wave one is the biggest.
+    ///
+    /// Selection is a filter and then a walk. `_anchors` is shuffled once when it is built,
+    /// so consecutive entries of any subset of it are spatially scattered — the spread comes
+    /// free from the shuffle rather than from a separate dispersal pass.
+    ///
+    /// Two relaxations, in order, because the constraints can genuinely be unsatisfiable in a
+    /// small or heavily-obstructed room:
+    ///   1. drop the on-screen preference (an enemy walking in from off-screen is fine),
+    ///   2. drop everything and use the anchors furthest from the player.
+    /// The minimum distance is never relaxed while any anchor satisfies it.
+    /// </summary>
+    private void ChooseWaveAnchors(int count, bool preferVisible, Vector2 playerPos)
+    {
+        _pendingSpawns.Clear();
+
+        if (_anchors.Count == 0)
+        {
+            Vector2 fallback = _room is not null ? _geometry.RoomAnchorWorld(_room) : playerPos;
+            for (int i = 0; i < count; i++) _pendingSpawns.Add(fallback);
+            return;
+        }
+
+        CollectAcceptable(preferVisible, playerPos);
+
+        // Too few to spread across? The visibility preference is the first thing to go.
+        if (preferVisible && _acceptable.Count < count) CollectAcceptable(false, playerPos);
+
+        // Nothing is far enough from the player — a very small room. Take the far half.
+        if (_acceptable.Count == 0) CollectFurthest(playerPos, Mathf.Max(4, count));
+
+        for (int i = 0; i < count; i++)
+            _pendingSpawns.Add(_acceptable[(_spawnCursor + i) % _acceptable.Count]);
+
+        _spawnCursor += count;
+    }
+
+    private void CollectAcceptable(bool preferVisible, Vector2 playerPos)
+    {
         // Half a viewport, so "visible" means comfortably inside the frame rather than on its
         // lip. Native resolution is 640x360 (docs/10 §1.2).
         const float HalfW = 280f, HalfH = 150f;
 
-        int best = -1;
-        float bestDist = float.MaxValue;
-
-        // Fallback: whatever is FURTHEST from the player. Used when no anchor satisfies the
-        // preferences, and safe by construction — the worst case is an enemy arriving from
-        // across the room, which is a fight rather than an ambush.
-        int furthest = index % _anchors.Count;
-        float furthestDist = -1f;
-
-        for (int i = 0; i < _anchors.Count; i++)
+        _acceptable.Clear();
+        foreach (Vector2 a in _anchors)
         {
-            int at = (index + i) % _anchors.Count;
-            Vector2 d = _anchors[at] - playerPos;
-            float dist = d.Length();
+            Vector2 d = a - playerPos;
 
-            if (dist > furthestDist) { furthestDist = dist; furthest = at; }
-
-            // HARD, and checked before anything else. Every other rule here is a preference.
-            if (dist < MinSpawnDistance) continue;
-
+            // HARD. Every other rule here is a preference.
+            if (d.Length() < MinSpawnDistance) continue;
             if (preferVisible && (Mathf.Abs(d.X) > HalfW || Mathf.Abs(d.Y) > HalfH)) continue;
 
-            // Closest of the acceptable ones when telegraphing, so a wave lands around the
-            // player rather than in the far corner; otherwise first acceptable is fine.
-            if (!preferVisible) return _anchors[at];
-            if (dist >= bestDist) continue;
-            bestDist = dist;
-            best = at;
+            _acceptable.Add(a);
         }
+    }
 
-        return best >= 0 ? _anchors[best] : _anchors[furthest];
+    /// <summary>The n anchors furthest from the player. The last resort, and safe by
+    /// construction — the worst case is enemies arriving from across a small room, which is a
+    /// fight rather than an ambush.</summary>
+    private void CollectFurthest(Vector2 playerPos, int n)
+    {
+        var sorted = new List<Vector2>(_anchors);
+        sorted.Sort((a, b) => b.DistanceSquaredTo(playerPos).CompareTo(a.DistanceSquaredTo(playerPos)));
+
+        _acceptable.Clear();
+        for (int i = 0; i < n && i < sorted.Count; i++) _acceptable.Add(sorted[i]);
     }
 
     // ---------------------------------------------------------------- Tick
@@ -364,10 +388,7 @@ public sealed class EncounterDirector
         _waveSpawnCount = wave.Count;
 
         _pendingWave = wave;
-        _pendingSpawns.Clear();
-        for (int i = 0; i < wave.Count; i++)
-            _pendingSpawns.Add(ChooseAnchor(_spawnCursor + i, telegraph, playerPos));
-        _spawnCursor += wave.Count;
+        ChooseWaveAnchors(wave.Count, preferVisible: telegraph, playerPos);
 
         if (!telegraph) { EmitPending(); return; }
 

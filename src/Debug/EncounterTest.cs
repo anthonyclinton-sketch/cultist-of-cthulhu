@@ -293,6 +293,15 @@ public sealed partial class EncounterTest : Node2D
         Check(closest >= 88f,
               $"and none of it lands on the player (closest marker {closest:F0}px)");
 
+        // SPREAD. A wave that all arrives at one point is one enemy wearing fourteen bodies:
+        // separation steering shoves them apart over the next second, the room reads as a
+        // single blob, and every pattern they fire overlaps.
+        var distinct = new System.Collections.Generic.HashSet<Vector2>();
+        foreach (Vector2 p in director.PendingSpawns) distinct.Add(p);
+        Check(distinct.Count >= Mathf.Min(director.PendingSpawns.Count, 4),
+              $"the wave is spread across the room, not stacked on one anchor " +
+              $"({distinct.Count} distinct points for {director.PendingSpawns.Count} enemies)");
+
         enemies.PlayerPosition = at;
         for (int t = 0; t < 120 && enemies.AliveCount == 0; t++) director.Tick(1f / 60f, at);
 
