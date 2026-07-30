@@ -600,8 +600,20 @@ public sealed partial class EnemyManager : Node2D
     }
 
     /// <summary>Contact damage check. Returns the largest contact damage overlapping.</summary>
-    public float QueryContactDamage(Vector2 playerPos, float playerRadius)
+    public float QueryContactDamage(Vector2 playerPos, float playerRadius) =>
+        QueryContactDamage(playerPos, playerRadius, out _);
+
+    /// <summary>
+    /// As above, and says WHAT was touched.
+    ///
+    /// The name is carried out because this is the only place that knows it. Telemetry
+    /// recorded that a run ended and never what ended it, so "how did I die?" had no answer
+    /// anywhere in the project — and the information was right here, being discarded one line
+    /// after it was found.
+    /// </summary>
+    public float QueryContactDamage(Vector2 playerPos, float playerRadius, out string source)
     {
+        source = "";
         float worst = 0f;
         for (int i = 0; i < _enemies.Count; i++)
         {
@@ -609,7 +621,10 @@ public sealed partial class EnemyManager : Node2D
             if (!e.Alive || e.Data.ContactDamage <= 0f) continue;
             float rr = playerRadius + e.Data.BodyRadius;
             if (e.Position.DistanceSquaredTo(playerPos) <= rr * rr && e.Data.ContactDamage > worst)
+            {
                 worst = e.Data.ContactDamage;
+                source = e.Data.DisplayName;
+            }
         }
 
         // The boss has a body too. Excluded in phase 3, where the passenger has no body at
@@ -626,7 +641,10 @@ public sealed partial class EnemyManager : Node2D
             if (b.Invulnerable) continue;
 
             float rr = playerRadius + b.BodyRadius;
-            if (b.Position.DistanceSquaredTo(playerPos) <= rr * rr) worst = b.Data.ContactDamage;
+            if (b.Position.DistanceSquaredTo(playerPos) > rr * rr) continue;
+
+            worst = b.Data.ContactDamage;
+            source = b.Data.DisplayName;
         }
 
         return worst;

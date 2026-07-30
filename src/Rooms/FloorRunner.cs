@@ -611,6 +611,20 @@ public sealed partial class FloorRunner : Node2D
         _run.Duration = _run.Telemetry.SessionDuration;
         _run.Outcome = RunOutcome.Dead;
 
+        // COMMIT THE ROOM THAT KILLED THEM. Telemetry.EndRoom is called from ClearRoom, so
+        // until now the one room a failed run most needed recorded was the only room never
+        // written — a CSV of every room survived and nothing about the one that ended it.
+        Weapon w = _player.Weapons.Active;
+        string cause = _player.LastDamageSource.Length > 0 ? _player.LastDamageSource : "unknown";
+        _run.Telemetry.EndRoomOnDeath(_player.Sanity, cause,
+                                      _player.Weapons.ReloadsAttempted,
+                                      _player.Weapons.ReloadsDenied,
+                                      w.PerfectRecitations, w.FailedRecitations);
+
+        GD.Print($"[DEATH] floor {_run.FloorIndex}, room {_roomsCleared + 1} — {cause}. " +
+                 $"{_player.Hearts:F1}/{_player.MaxHearts:F1} hearts, " +
+                 $"{_player.Sanity.Current:F0} Sanity, {_enemies?.AliveCount ?? 0} still alive.");
+
         // Clear the time scale explicitly. Relying on the per-frame Apply() to release it
         // is what failed here in the first place.
         _hitStop.Clear();
@@ -777,6 +791,15 @@ public sealed partial class FloorRunner : Node2D
               $"the death happened to a run with state in it ({_run.RoomsCleared} rooms cleared)");
         Check(_run.Telemetry.TotalRooms > 0,
               $"telemetry survived the death ({_run.Telemetry.TotalRooms} room records)");
+
+        // The room that killed them is IN the file. Until this was added, EndRoom only ran on
+        // a room being cleared, so a failed run recorded every room survived and nothing at
+        // all about the one that ended it — which is backwards for a file whose whole purpose
+        // is explaining runs that went wrong.
+        Meta.Telemetry.RoomRecord? death = _run.Telemetry.DeathRoom();
+        Check(death is not null, "the room the run ended in was recorded");
+        Check(death is not null && death.DeathCause.Length > 0,
+              $"and it says what ended it (\"{death?.DeathCause}\")");
 
         // The floor must stop. A room that keeps ticking behind the summary can still spawn,
         // shoot and — before EndRun cleared them — kill a player who is already dead.

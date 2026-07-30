@@ -35,6 +35,12 @@ public sealed class Telemetry
         public int Ascensions;
         public int CandlesCollected;
         public int ArmourAbsorbed;
+
+        /// <summary>The run ended here. Exactly one room per failed run carries it.</summary>
+        public bool Died;
+
+        /// <summary>What dealt the killing blow, if this is the room that ended the run.</summary>
+        public string DeathCause = "";
     }
 
     private readonly List<RoomRecord> _rooms = new();
@@ -107,6 +113,39 @@ public sealed class Telemetry
         _rooms.Add(_current);
     }
 
+    /// <summary>
+    /// Commit the room the run ENDED in, and say what ended it.
+    ///
+    /// THE HOLE THIS FILLS. EndRoom was only ever called when a room was CLEARED, so the one
+    /// room a failed run most needs recorded — the one the player died in — was the one room
+    /// never written. A death produced a CSV of every room survived and nothing at all about
+    /// the room that killed them, which is precisely backwards for a file whose purpose is to
+    /// explain runs that went wrong.
+    ///
+    /// Found by being asked "how did I die?" and having to answer "the telemetry cannot tell
+    /// you, by construction".
+    ///
+    /// Separate from EndRoom rather than a flag on it, because the two mean different things:
+    /// this room was not completed, its duration is however long the player survived, and the
+    /// reload counters are whatever they had reached. Folding them together would put a
+    /// half-finished room in the same column as finished ones and quietly skew every
+    /// per-room average the M1 metrics compute.
+    /// </summary>
+    public void EndRoomOnDeath(SanitySystem sanity, string cause,
+                               int reloadsAttempted, int reloadsDenied, int perfect, int failed)
+    {
+        _current.Died = true;
+        _current.DeathCause = cause;
+        EndRoom(sanity, reloadsAttempted, reloadsDenied, perfect, failed);
+    }
+
+    /// <summary>The room the run ended in, or null if it did not end in one.</summary>
+    public RoomRecord? DeathRoom()
+    {
+        foreach (RoomRecord r in _rooms) if (r.Died) return r;
+        return null;
+    }
+
     // ---------------------------------------------------------------- Derived metrics
 
     /// <summary>Metric 1: % of combat time below 40 Sanity. Pass 25-45%.</summary>
@@ -172,7 +211,13 @@ public sealed class Telemetry
                       $"   blink cost {Core.Tune.SanityBlinkCost:F0}");
         sb.AppendLine($" rooms                {_rooms.Count}   session {SessionDuration:F0}s");
         sb.AppendLine($" 1. time below 40     {below * 100:F1}%   target 25-45%      [{Verdict(below is >= 0.25f and <= 0.45f)}]");
-        sb.AppendLine($" 5. median net/room   {net:+0.0;-0.0}      target -15..+15    [{Verdict(net is >= -15f and <= 15f)}]");
+        // Metric 5 is retired — see the note in Debug.EconomySim. Its premise predates the
+        // Lucid Ceiling, under which in-combat net is negative BY DESIGN, so it read [OUT]
+        // on every healthy run. Deleted from the economy sim and left here, which is worse
+        // than either: this is the summary a PLAYER sees after every run, so the one copy
+        // that survived was the one with the widest audience. Context, no verdict.
+        sb.AppendLine($" median net/room      {net:+0.0;-0.0}      (context — negative in " +
+                      $"combat is by design under the Lucid Ceiling)");
         sb.AppendLine($" 9. ladder fires      {ladder * 100:F0}%     target >= 70%      [{Verdict(ladder >= 0.70f)}]");
         sb.AppendLine($" 3. denied sustain    {TotalDeniedSustain()}        target 1-4/run");
 
@@ -207,10 +252,24 @@ public sealed class Telemetry
                       $"outcome={outcome}," +
                       $"blink_cost={Core.Tune.SanityBlinkCost:F0}," +
                       $"ceiling_floor={Core.Tune.LucidCeilingFloor:F0}");
+
+        // The death, on the header line, so the first thing anyone opening the file sees is
+        // what ended the run. It is also in the per-room rows below; a reader looking for
+        // "how did this run go wrong" should not have to scan to the bottom to find out.
+        RoomRecord? death = DeathRoom();
+        if (death is not null)
+        {
+            sb.AppendLine($"# died=room {death.RoomIndex}," +
+                          $"cause={death.DeathCause}," +
+                          $"survived={death.Duration:F1}s," +
+                          $"sanity={death.SanityEnd:F0}," +
+                          $"hits_that_room={death.HitsTaken}");
+        }
+
         sb.AppendLine("room,duration,sanity_start,sanity_end,sanity_min,income,spend,ceiling," +
                       "kills,hits,denied_sustain,reloads,reloads_denied,perfect,failed," +
                       "t_lucid,t_unsettled,t_fraying,t_unravelled,ladder_fired,ascensions," +
-                      "candles,armour_absorbed");
+                      "candles,armour_absorbed,died,death_cause");
 
         foreach (RoomRecord r in _rooms)
         {
@@ -220,7 +279,10 @@ public sealed class Telemetry
                           $"{r.ReloadsDenied},{r.PerfectRecitations},{r.FailedRecitations}," +
                           $"{r.TimeLucid:F2},{r.TimeUnsettled:F2},{r.TimeFraying:F2},{r.TimeUnravelled:F2}," +
                           $"{(r.ReachedFrayingUnaided ? 1 : 0)},{r.Ascensions}," +
-                          $"{r.CandlesCollected},{r.ArmourAbsorbed}");
+                          $"{r.CandlesCollected},{r.ArmourAbsorbed}," +
+                          // Quoted: a cause names an enemy, and enemy names are authored
+                          // text that will eventually contain a comma.
+                          $"{(r.Died ? 1 : 0)},\"{r.DeathCause}\"");
         }
 
         using var f = FileAccess.Open(path, FileAccess.ModeFlags.Write);

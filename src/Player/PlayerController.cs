@@ -310,6 +310,10 @@ public sealed partial class PlayerController : CharacterBody2D
     {
         Hearts = 0f;
         PendingHitStop = Core.HitStop.PlayerDamaged;
+
+        // Labelled as synthetic, so a death drill's telemetry can never be mistaken for a
+        // real run's — and so the drill can assert the cause reached the record at all.
+        LastDamageSource = "the death drill";
     }
 
     public override void _PhysicsProcess(double delta)
@@ -597,8 +601,14 @@ public sealed partial class PlayerController : CharacterBody2D
                  $"  corruption {Corruption:F0}" +
                  (defaulted ? "   *** DEFAULTED — the bill could not be paid ***" : ""));
 
-        // You do not come back from defaulting.
-        if (defaulted) Hearts = 0f;
+        // You do not come back from defaulting. Named, because a death with no enemy anywhere
+        // near it is the single most confusing way for a run to end and the telemetry should
+        // not leave the player guessing.
+        if (defaulted)
+        {
+            Hearts = 0f;
+            LastDamageSource = "the Ascension debt — defaulted";
+        }
 
         if (IsDead) EmitSignal(SignalName.Died);
     }
@@ -1036,19 +1046,32 @@ public sealed partial class PlayerController : CharacterBody2D
         Weapons.FireRateMultiplier = Circle.Effects.FireRateMultiplier;
     }
 
+    /// <summary>
+    /// What last hurt this player, for the death record.
+    ///
+    /// Named as specifically as each path can manage. Contact knows exactly what was touched;
+    /// a bullet does not, because enemy bullets carry no source — widening that struct is the
+    /// same M0-gated array the Brine element is waiting on. "a bullet" is still worth more
+    /// than the nothing the telemetry recorded before.
+    /// </summary>
+    public string LastDamageSource { get; private set; } = "";
+
     private void ConsumeIncomingHits()
     {
         if (EnemyBullets is null || EnemyBullets.HitsThisTick <= 0) return;
         if (IsInvulnerable) return;
+        LastDamageSource = "a bullet";
         TakeHit(Tune.BulletHitDamage * IncomingDamageMultiplier);
     }
 
     private void ConsumeContactDamage()
     {
         if (Enemies is null || IsInvulnerable || _contactDamageCooldown > 0f) return;
-        float dmg = Enemies.QueryContactDamage(GlobalPosition, Tune.PlayerHitboxRadius);
+        float dmg = Enemies.QueryContactDamage(GlobalPosition, Tune.PlayerHitboxRadius,
+                                               out string source);
         if (dmg <= 0f) return;
         _contactDamageCooldown = 0.6f;
+        LastDamageSource = source.Length > 0 ? $"contact with {source}" : "contact";
         TakeHit(dmg * IncomingDamageMultiplier);
     }
 
