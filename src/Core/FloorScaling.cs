@@ -84,6 +84,25 @@ public static class FloorScaling
         return max > 0;
     }
 
+    /// <summary>
+    /// The content set a floor draws its rooms from — docs/07 §2's themes, as a tag matched
+    /// against <see cref="Generation.RoomTemplate.FloorTag"/>.
+    ///
+    /// That field has existed since M2, was set to "undercroft" on all 32 templates, and was
+    /// read by NOTHING; template selection filtered only on `MinFloor > floorIndex`, a lower
+    /// bound, so an Undercroft room stayed eligible on every floor forever and floor 2 built
+    /// itself out of cellars. The fourth thing in this project specified, believed present and
+    /// absent — the same shape as the attack tokens, the damage scaling and the enemy roster.
+    ///
+    /// Floors with no authored set of their own fall back to the Undercroft, which is what
+    /// keeps floors 3-6 generating while their content does not exist.
+    /// </summary>
+    public static string ThemeTag(int floor) => floor switch
+    {
+        2 => Generation.WharfContent.Tag,
+        _ => "undercroft",
+    };
+
     /// <summary>One line for the run summary and the F3 overlay.</summary>
     public static string Describe(int floor) =>
         $"floor {floor}: {AttackTokens(floor)} tokens, " +

@@ -530,7 +530,27 @@ public sealed class FloorGenerator
 
     // ---------------------------------------------------------------- Stage 3
 
+    /// <summary>
+    /// Pick a room for a node, PREFERRING this floor's own theme.
+    ///
+    /// Two passes rather than a hard filter, and the fallback is load-bearing. Floor 2 has
+    /// authored Wharf rooms for the combat roles only — its shops, shrines, entrances and boss
+    /// arena are still Undercroft — so a strict tag filter would fail generation outright on
+    /// every floor whose set is incomplete, which is all of them. Preferring the theme gets
+    /// water into every combat room on the Wharfs, which is the point of the floor, without
+    /// requiring sixteen rooms to exist before any of them can be used.
+    ///
+    /// The cost is honest and worth stating: a Wharf floor still has a cellar for a shop.
+    /// </summary>
     private RoomTemplate? PickTemplate(FlowNode node, Rng rng, int floorIndex, HashSet<string> used)
+    {
+        string theme = Core.FloorScaling.ThemeTag(floorIndex);
+        return PickTemplate(node, rng, floorIndex, used, theme)
+               ?? PickTemplate(node, rng, floorIndex, used, requiredTag: null);
+    }
+
+    private RoomTemplate? PickTemplate(FlowNode node, Rng rng, int floorIndex,
+                                       HashSet<string> used, string? requiredTag)
     {
         RoomTemplate? best = null;
         float bestScore = -1f;
@@ -539,6 +559,7 @@ public sealed class FloorGenerator
         {
             if (t.Role != node.Role) continue;
             if (t.MinFloor > floorIndex) continue;
+            if (requiredTag is not null && t.FloorTag != requiredTag) continue;
 
             // docs/06 §4.3 — hard rule: the same room never appears twice on one floor.
             // Repetition inside a single descent is far more noticeable than repetition

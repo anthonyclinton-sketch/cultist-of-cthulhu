@@ -425,8 +425,14 @@ public sealed partial class FloorRunner : Node2D
     /// node in C# is still a live object reference, and calling into one is a hard crash
     /// rather than a null check.
     /// </summary>
+    /// <summary>Enemies spawned on floors already left behind. The manager is rebuilt per
+    /// floor, so its own total goes with it.</summary>
+    private int _spawnedOnPreviousFloors;
+
     private void TearDownFloor()
     {
+        if (_enemies is not null) _spawnedOnPreviousFloors += _enemies.TotalSpawned;
+
         _enemies?.ClearAll();
 
         Retire(_enemies);
@@ -621,9 +627,22 @@ public sealed partial class FloorRunner : Node2D
         // The control for making the harness invulnerable. Without it, "every room was
         // cleared" is equally true of a run through empty rooms — and an encounter director
         // that spawned nothing would pass every other assertion in this list.
-        Check(_player.DebugHitsIgnored > 0,
-              $"the harness was actually shot at ({_player.DebugHitsIgnored} hits absorbed) " +
-              $"— it is invulnerable, not unopposed");
+        //
+        // SPAWNS, and it took two attempts to land on something that is not flaky.
+        //
+        // "The harness was shot at" is a fact about the enemies' AIM — on seed 7 the bot
+        // cleared floor 1 untouched and the gate failed on a healthy build. "Enemies were
+        // killed" reads a telemetry counter that turned out to be wired to the player's kill
+        // path, which the autorun does not always use. Spawning is the thing actually being
+        // controlled for: it is what an encounter director failing silently would produce
+        // none of, and nothing about it depends on anyone hitting anything.
+        //
+        // Hits absorbed is still REPORTED, because it is the lethality readout that
+        // invulnerability would otherwise hide. It is just not something to assert on.
+        int spawned = _spawnedOnPreviousFloors + (_enemies?.TotalSpawned ?? 0);
+        Check(spawned > 0,
+              $"the rooms held enemies ({spawned} spawned, " +
+              $"{_player.DebugHitsIgnored} hits absorbed) — invulnerable, not unopposed");
 
         // The whole reason for a RunState. If any of this resets at a floor boundary the
         // player silently loses their run, and nothing else in the project would notice.

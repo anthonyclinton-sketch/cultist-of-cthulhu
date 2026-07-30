@@ -63,6 +63,11 @@ public sealed partial class EnemyManager : Node2D
     public int AliveCount { get; private set; }
     public int KilledThisRoom { get; private set; }
 
+    /// <summary>Every enemy this manager has ever spawned. Never reset per room — it is the
+    /// autorun's control that its rooms held anything, and a per-room counter would be zero
+    /// by the time anyone asked.</summary>
+    public int TotalSpawned { get; private set; }
+
     /// <summary>Sanity owed to the player from kills this tick. Polled and cleared by the
     /// player — a value rather than an event, to keep the tick allocation-free.</summary>
     public float PendingSanityReward { get; private set; }
@@ -182,6 +187,7 @@ public sealed partial class EnemyManager : Node2D
 
         var e = new Enemy(_nextId++, data, position, _enemyBullets, _rng, SpawnAwakened);
         _enemies.Add(e);
+        TotalSpawned++;
 
         // Updated HERE and not only in the tick. Godot ticks parents before children, so
         // a room owner that spawns enemies and then checks AliveCount in the same frame

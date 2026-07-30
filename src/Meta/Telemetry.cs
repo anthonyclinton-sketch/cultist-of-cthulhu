@@ -147,6 +147,15 @@ public sealed class Telemetry
         return n;
     }
 
+    /// <summary>Enemies killed across the whole run. The autorun's control that its rooms
+    /// held anything — "every room was cleared" is equally true of empty ones.</summary>
+    public int TotalKills()
+    {
+        int n = 0;
+        foreach (RoomRecord r in _rooms) n += r.Kills;
+        return n;
+    }
+
     // ---------------------------------------------------------------- Output
 
     public string Summary()
