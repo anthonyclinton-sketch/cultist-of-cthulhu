@@ -47,6 +47,7 @@ public sealed partial class TideTest : Node2D
         TestWadersAreSlowedAndSwimmersAreNot();
         TestDrenchedLingers();
         TestSwimmersAreOnlyOnWetFloors();
+        TestEveryRoomGetsAWaterline();
 
         GD.Print("================================================================");
         GD.Print(_failures == 0 ? " THE TIDE: PASS" : $" THE TIDE: FAIL ({_failures})");
@@ -310,6 +311,59 @@ public sealed partial class TideTest : Node2D
     private static void StepDrenched(Player.PlayerController player, float seconds)
     {
         for (int t = 0; t < Mathf.CeilToInt(seconds / Dt); t++) player.TickDrenched(Dt);
+    }
+
+    // ---------------------------------------------------------------- The waterline
+
+    /// <summary>
+    /// Every body of water on the floor shows its own surface.
+    ///
+    /// THE BUG THIS ENCODES. The waterline used to be "the top row of the band", computed as
+    /// a single minimum Y across the WHOLE FLOOR — so the bright shore edge was drawn only in
+    /// whichever room happened to contain the topmost water tile, and every other room's water
+    /// had no surface at all. The flood demo floods every room identically, so the one room
+    /// that drew it looked right and nothing looked wrong.
+    ///
+    /// The assertion is per-room, because that is the axis the bug lived on. A floor-wide
+    /// count would have passed the broken version too — it drew edges, just not in the right
+    /// places, which is the difference between "some output" and "correct output".
+    /// </summary>
+    private void TestEveryRoomGetsAWaterline()
+    {
+        var gen = new Generation.FloorGenerator(
+            Generation.UndercroftContent.Flows(), Generation.UndercroftContent.Rooms());
+
+        Generation.GeneratedFloor? floor = gen.Generate(Hash.ParseSeed("tide"), 2, out string failure);
+        if (floor is null) { Check(false, $"a floor generates for the waterline test ({failure})"); return; }
+
+        var geometry = new Rooms.FloorGeometry(floor);
+        geometry.FloodDemo(floor);
+
+        // Count the rooms that hold water, and the rooms that show a surface. With the demo
+        // every room is flooded, so the two must agree.
+        int roomsWithWater = 0, roomsWithWaterline = 0;
+        foreach (Generation.PlacedRoom r in floor.Rooms)
+        {
+            Rect2 bounds = geometry.RoomRectWorld(r);
+            bool water = false, line = false;
+
+            for (int band = 1; band <= TideField.MaxFloodLevel; band++)
+            {
+                foreach (Rect2 w in geometry.BuildWaterRects(band))
+                    if (bounds.HasPoint(w.Position + w.Size * 0.5f)) { water = true; break; }
+                foreach (Rect2 w in geometry.BuildWaterEdgeRects(band))
+                    if (bounds.HasPoint(w.Position + w.Size * 0.5f)) { line = true; break; }
+            }
+
+            if (water) roomsWithWater++;
+            if (line) roomsWithWaterline++;
+        }
+
+        Check(roomsWithWater > 1,
+              $"control: the test floor has water in more than one room ({roomsWithWater})");
+        Check(roomsWithWaterline == roomsWithWater,
+              $"every room with water shows a waterline " +
+              $"({roomsWithWaterline} of {roomsWithWater} rooms)");
     }
 
     // ---------------------------------------------------------------- The roster

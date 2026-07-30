@@ -1901,13 +1901,8 @@ public sealed partial class FloorTiles : Node2D
         foreach (Rect2 r in Geometry.BuildWallRects()) _walls.Add(r);
         for (int band = 1; band <= Core.TideField.MaxFloodLevel; band++)
         {
-            List<Rect2> rects = Geometry.BuildWaterRects(band);
-            _water[band - 1] = rects;
-
-            // The band's top row, precomputed so _Draw does not scan for it every frame.
-            float top = float.MaxValue;
-            foreach (Rect2 r in rects) if (r.Position.Y < top) top = r.Position.Y;
-            _waterTopY[band - 1] = top;
+            _water[band - 1] = Geometry.BuildWaterRects(band);
+            _waterEdge[band - 1] = Geometry.BuildWaterEdgeRects(band);
         }
         QueueRedraw();
     }
@@ -1915,7 +1910,7 @@ public sealed partial class FloorTiles : Node2D
     private readonly List<Rect2> _rects = new();
     private readonly List<Rect2> _walls = new();
     private readonly List<Rect2>[] _water = new List<Rect2>[Core.TideField.MaxFloodLevel];
-    private readonly float[] _waterTopY = new float[Core.TideField.MaxFloodLevel];
+    private readonly List<Rect2>[] _waterEdge = new List<Rect2>[Core.TideField.MaxFloodLevel];
 
     public override void _Draw()
     {
@@ -1940,18 +1935,20 @@ public sealed partial class FloorTiles : Node2D
             bool wet = IsBandWet(band);
             foreach (Rect2 r in rects) DrawRect(r, wet ? WaterWet : WaterDry);
 
-            // The shoreline: ONE line along the top of the shallowest band that is currently
-            // wet. Edging every row of the band instead drew three parallel stripes, which
-            // reads as decoration rather than as a water's edge — docs/10 §1.3 wants a state
-            // change legible at a glance, and a glance cannot count stripes.
+            // The waterline, wherever the water's surface actually is — every tile of this
+            // band with nothing covering it, in every room, whatever shape the channel is.
+            // Only the band that is currently LAST to be submerged gets the bright edge; the
+            // bands above it get the dim seabed edge so a dry channel still reads as a
+            // channel (docs/10 §1.3: state changes legible at a glance).
             bool isShoreline = wet && !IsBandWet(band + 1);
-            if (!isShoreline && wet) continue;
+            if (wet && !isShoreline) continue;
 
-            float topY = _waterTopY[band - 1];
+            List<Rect2>? waterline = _waterEdge[band - 1];
+            if (waterline is null) continue;
+
             Color line = isShoreline ? WaterWetEdge : WaterDryEdge;
-            foreach (Rect2 r in rects)
-                if (Mathf.IsEqualApprox(r.Position.Y, topY))
-                    DrawRect(new Rect2(r.Position, new Vector2(r.Size.X, 2f)), line);
+            foreach (Rect2 r in waterline)
+                DrawRect(new Rect2(r.Position, new Vector2(r.Size.X, 2f)), line);
         }
 
         foreach (Rect2 r in _walls)

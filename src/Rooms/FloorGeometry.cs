@@ -515,7 +515,29 @@ public sealed class FloorGeometry
 
     /// <summary>Water tiles at a given flood level, merged into runs for the renderer. Same
     /// row-run batching as <see cref="BuildFloorRects"/>, for the same reason.</summary>
-    public List<Rect2> BuildWaterRects(int floodLevel)
+    public List<Rect2> BuildWaterRects(int floodLevel) =>
+        BuildWaterRuns(floodLevel, edgeOnly: false);
+
+    /// <summary>
+    /// The WATERLINE at a given flood level: water tiles whose neighbour above is not covered
+    /// when this band is the last one submerged. Drawn as the bright shore edge.
+    ///
+    /// Defined per tile rather than as "the top row of the band", which is what it was and
+    /// which was wrong in a way the flood demo could not show. That version took one minimum
+    /// Y across the WHOLE FLOOR, so the highlight appeared only in whichever room happened to
+    /// contain the topmost water tile on the floor and every other room's shoreline was
+    /// missing. Every room in the demo is flooded identically, so the one room that drew it
+    /// looked correct and the bug read as "working".
+    ///
+    /// This definition does not care about shape, which is the point: authored Wharf water is
+    /// channels, pools and margins around a pier (docs/07 §3), not a band across the bottom
+    /// of a rectangle, and a waterline that only works on bands would have failed on the
+    /// first real room.
+    /// </summary>
+    public List<Rect2> BuildWaterEdgeRects(int floodLevel) =>
+        BuildWaterRuns(floodLevel, edgeOnly: true);
+
+    private List<Rect2> BuildWaterRuns(int floodLevel, bool edgeOnly)
     {
         var rects = new List<Rect2>();
         for (int y = 0; y < Height; y++)
@@ -524,6 +546,16 @@ public sealed class FloorGeometry
             for (int x = 0; x <= Width; x++)
             {
                 bool water = x < Width && _flood[x, y] == floodLevel && _walkable[x, y];
+
+                // An edge tile is one the water's surface is visible at: the tile above is
+                // either not water at all, or belongs to a band that floods LATER and is
+                // therefore still dry while this one is the waterline.
+                if (water && edgeOnly)
+                {
+                    int above = y > 0 ? _flood[x, y - 1] : 0;
+                    water = above == 0 || above > floodLevel;
+                }
+
                 if (water && runStart < 0) runStart = x;
                 else if (!water && runStart >= 0)
                 {
