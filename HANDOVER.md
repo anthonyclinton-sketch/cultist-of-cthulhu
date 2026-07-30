@@ -131,7 +131,9 @@ Corruption thresholds, the Dread Budget with kill-triggered waves.
   on something that takes no damage.
 
 ### Quality of life
-- **×2 movement out of combat**, guarded by five independent measures (§7.6).
+- **×2 movement out of combat**, guarded by five independent measures — see
+  `FloorRunner.OutOfCombat`, and the per-tick autorun audit beside it that fails the build if
+  the bonus is ever live during a fight.
 - **Nothing spawns within 90px of the player**, wave one telegraphs like the rest, and a wave
   is spread across the room rather than stacked on one anchor.
 
@@ -211,7 +213,55 @@ floor whose set is incomplete, which is all of them.
 **The Ferryman of the Manuxet** (docs/05 §7) — floor 2's Warden, offering passage for +2
 Corruption or a fight. Not built; no Warden system exists at all.
 
-### 5.2 The difficulty curve — half done, and the remaining half is content
+### 5.2 Weapons — nothing can be acquired, and most of the roster is not expressible
+
+Two separate problems, and the first is the one a player hits.
+
+**Nothing grants a weapon except the startup array.** Five weapons are authored; three are
+handed out at run start by a hardcoded array of paths in `FloorRunner.LoadContent`. The other
+two — **Trench Sweeper** and **Nitro Express** — are finished, content-validated, and
+**unreachable by any means**. There is no acquisition path at all:
+
+- `Interactable.Weapon` is a field with **no writer**. Grep `\.Weapon = ` and it returns
+  nothing. The pickup type is scaffolding.
+- **Gaunt's stall stocks sigils, inscriptions, consumables, a bench, a reroll and the
+  Dissolution Bowl** — no weapons. docs/08 §2.1 does not promise weapons in the shop, so this
+  is arguably correct; reward rooms and chests are the natural home.
+- **Drop tables contain no weapons.**
+
+This is the **sixth** "specified, believed present, absent" in this project, and the largest —
+the other five were a field or a routing rule; this is a whole loop. Wiring it is small:
+`Interactable` has the field, `RoomContent` already knows how to price and display an offer,
+and `PlayerController.GiveWeapon` exists and is called only from startup. **Do this before
+authoring anything**, or every weapon added lands in the same unreachable pile.
+
+**The roster is written against a weapon system that does not exist.** docs/03 plans **40
+weapons** (4 starter, 8 D/C, 14 C/B, 10 A, 4 S). `WeaponData` is a flat parameter block and
+`BulletBehaviour` is `{Straight, Homing, Wave, Accelerate, DelayThenGo}`. Triaged against
+that, of the 35 unbuilt:
+
+| | Weapons | What it needs |
+|---|---|---|
+| **Authorable today** | Miskatonic Service Rifle, The Weeping Colt, Whaling Iron | nothing — pure data |
+| **Small bounded additions** | Chicago Typewriter, Derringer of Last Rites, Rotgut Repeater, Gristlebore, The Congregation, Vermiculate, Dho-Hna Lens, Nitro Express's self-knockback | new `WeaponData` fields (spread growth, magazine-per-kill, fire-rate ramp, conditional damage on Sanity, self-knockback) and two `BulletBehaviour` values (split-on-impact, ignore-walls / ricochet) |
+| **Whole new systems** | Flare Pistol, Shoggoth Maw, Hookline, Shining Trapezohedron, Tillinghast Resonator, Elder Sign Projector, Azathoth's Flute, Yith Exchanger, The Yellow Sign, Call of the Deep, Dreamlands Gate, Ghoulcalling, Ia! Ia!, and the three Aberrant | room lighting, ground hazards, pull forces, charge weapons, wall-ignoring cones, placed turrets, position swap, marked-target status, channelled casts, portals, summons |
+
+So **"author all weapons" is not a data task.** Roughly 3 of 35 are expressible now, another
+8 behind a half-day of bounded field additions, and the remaining ~24 behind systems that are
+each a feature in their own right. This is the same finding §8 records about sigils — a fixed
+modifier vocabulary rather than a scripting hook — arriving in a second system, which suggests
+it is worth deciding *once*, for both.
+
+**Two things to know before authoring any of it:**
+
+- **The Silver Key is not a weapon.** docs/03 lists it under Artefacts and describes a
+  consumable that rewinds you to the previous room on death. It belongs with consumables.
+- **Family V (melee) may be cut.** docs/03's review note sets an explicit M3 trigger: if melee
+  still does not feel good after the reach and knockback fixes, cut the family and make melee
+  the Fisherman's exclusive identity. Authoring *Whaling Iron* and *The Ninth Tooth* before
+  that decision risks authoring a family that gets deleted.
+
+### 5.3 The difficulty curve — half done, and the remaining half is content
 
 The floor term now **multiplies** rather than adds (`FloorScaling.DreadMultiplier`). Measured
 effect on how much of a floor runs at maximum pressure:
@@ -233,19 +283,19 @@ Floors 3–6 have no authored rooms, so that is where the headroom has to come f
 encounter gate prints where the ceiling binds per floor — read it before touching the formula
 again, because tuning `baseline` now mostly moves a number that gets clamped.
 
-### 5.3 Floors 3–6
+### 5.4 Floors 3–6
 
 `FloorScaling` already scales attack tokens (4→9), damage (×2 from floor 3), room counts and
 Dread across all six. `Bestiary`, `RoomLibrary`, `BossRoster` and `FloorScaling.ThemeTag` all
 take a floor and return content, so adding a floor is authoring plus one row in each table.
 
-### 5.4 Save/load
+### 5.5 Save/load
 
 On the M2 checklist and not built — a run ends when the process does. `RunState` holds no
 scene references and now records `StartFloor`, so this is mostly serialisation. A run is ~12
 minutes at two floors; it becomes urgent at six.
 
-### 5.5 The M1/M2 playtest — deferred by the owner, deliberately
+### 5.6 The M1/M2 playtest — deferred by the owner, deliberately
 
 Design in `docs/11-roadmap.md` § "M1 TEST DESIGN": 10–12 testers, ~25 min each, **both arms**,
 counterbalanced. Watch for metric 6 (does anyone Open the Eye unprompted?), metric 7 (does the
