@@ -77,6 +77,58 @@ public partial class BossData : Resource
     [Export] public float GrabCooldown { get; set; } = 4.5f;
     [Export] public float GrabRange { get; set; } = 260f;
 
+    [ExportGroup("Voice")]
+
+    /// <summary>
+    /// What the game says when this boss changes phase or dies.
+    ///
+    /// AUTHORED, because it was hardcoded in FloorRunner — so Mother Hydra, fixed in a flooded
+    /// hall for nine hundred years, announced her second phase with the Doorstep's "—and I
+    /// told her, I told her the WELL was—" and died as "what is left is a man, and he is
+    /// grateful". Both are good lines for a possessed cultist and absurd for anything else,
+    /// and a boss that speaks in another boss's voice is the loudest possible tell that the
+    /// fight was assembled rather than written.
+    /// </summary>
+    [Export(PropertyHint.MultilineText)] public string Phase2Line { get; set; } = "";
+    [Export(PropertyHint.MultilineText)] public string Phase3Line { get; set; } = "";
+    [Export(PropertyHint.MultilineText)] public string DeathLine { get; set; } = "";
+
+    public string LineForPhase(int phase) => phase switch
+    {
+        2 => Phase2Line,
+        3 => Phase3Line,
+        _ => "",
+    };
+
+    [ExportGroup("The Tide (docs/05 §7 — Mother Hydra's Brood)")]
+
+    /// <summary>
+    /// This boss belongs to the water: the tide takes it and gives it back.
+    ///
+    /// False for every boss but the brood, and the flag is what keeps the Doorstep — which
+    /// fights in a dry cellar and knows nothing about tides — untouched by any of this.
+    /// </summary>
+    [Export] public bool TideBound { get; set; }
+
+    /// <summary>
+    /// Submerged while the tide is ABOVE <see cref="TideThreshold"/>.
+    ///
+    /// The matriarch and the consort set this OPPOSITE ways, and that is the entire fight:
+    /// docs/05 §7 says "at high tide the matriarch is submerged and the consort is fast; at
+    /// low tide the reverse", so exactly one of them is hittable at any moment and the player
+    /// has to change target on the tide rather than on health.
+    /// </summary>
+    [Export] public bool SubmergedAtHighTide { get; set; } = true;
+
+    /// <summary>Tide level at which the water takes this boss. 0.5 puts the handover at the
+    /// midpoint of the cycle, which is where TideCycle's cosine moves fastest — so the swap
+    /// is a moment rather than a slow fade.</summary>
+    [Export] public float TideThreshold { get; set; } = 0.5f;
+
+    /// <summary>Speed multiplier while EXPOSED. The consort is fast in its own half of the
+    /// cycle — a boss that is merely hittable is not a threat, it is a target.</summary>
+    [Export] public float TideExposedSpeedMultiplier { get; set; } = 1f;
+
     [ExportGroup("Rewards")]
     [Export] public int GoldReward { get; set; } = 80;
     [Export] public int KeyReward { get; set; } = 1;
@@ -132,8 +184,17 @@ public partial class BossData : Resource
             if (!any) return $"{Id}: phase {phase} has no attack patterns.";
         }
 
-        if (GrabSanityCost <= 0f)
-            return $"{Id}: the grab must cost Sanity — that is what distinguishes phase 3 (docs/05 §7).";
+        // ONLY IF THE BOSS ACTUALLY GRABS. This rule was written when one boss existed and it
+        // encoded that boss's design as a universal law: the grab is The Thing on the
+        // Doorstep's phase 3, where a passenger tries to enter YOU and the bill is Sanity
+        // rather than health. Mother Hydra is fixed in a flooded hall and grabs nothing, and
+        // she failed content validation for not having a mechanic she was never given.
+        //
+        // The property worth keeping is the one the original comment names — a grab that
+        // costs health would be a reskin of phase 1 — so it is enforced on bosses that grab.
+        if (GrabRange > 0f && GrabSanityCost <= 0f)
+            return $"{Id}: a boss that grabs (GrabRange {GrabRange:F0}) must charge Sanity for " +
+                   $"it — costing health would make it a reskin of phase 1 (docs/05 §7).";
 
         return null;
     }

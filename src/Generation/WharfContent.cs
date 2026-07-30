@@ -125,6 +125,33 @@ public static class WharfContent
              },
              obstacles: new[] { 8, 6, 4, 3, 10, 16, 3, 4, 32, 18, 2, 2 });
 
+        // ---- THE HALL OF THE MOTHER. docs/05 §7 puts the matriarch "fixed at the far end of
+        // a flooded hall" with the consort circling, and the tide deciding which of them can
+        // be hurt — so the arena's water is the fight, not its scenery.
+        //
+        // The channel runs the LENGTH of the hall rather than banking into a corner: both
+        // bosses have to be reachable in their own half of the cycle, from ground the player
+        // can stand on, or the fight becomes "wait out the tide" instead of "cross to the one
+        // that is exposed". The margins are deliberately shallow (level 4, last to flood) so
+        // there is dry footing at every tide except the very peak.
+        Room("wharf_hydra_hall", RoomRole.Boss, 96, 66,
+             new[] { 30, 66 }, new[] { 34, 62 }, new[] { 30 }, new[] { 30 }, 0f,
+             water: new[]
+             {
+                  6, 10, 84, 46, 4,
+                 10, 14, 76, 38, 3,
+                 14, 18, 68, 30, 2,
+                 20, 24, 56, 18, 1,
+             },
+             obstacles: new[]
+             {
+                 // Pilings, in pairs down the hall. The only cover at high tide, and the only
+                 // way to fight the matriarch without standing in open water.
+                 26, 20, 4, 4,  66, 20, 4, 4,
+                 26, 42, 4, 4,  66, 42, 4, 4,
+                 46, 12, 4, 4,  46, 50, 4, 4,
+             });
+
         // ---- A GANTRY. Connector, water down one side only — a rest beat that still tells
         // you the tide is running.
         Room("wharf_gantry", RoomRole.Connector, 48, 18,

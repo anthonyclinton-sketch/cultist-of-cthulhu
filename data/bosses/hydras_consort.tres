@@ -1,0 +1,49 @@
+[gd_resource type="Resource" script_class="BossData" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://src/Enemies/BossData.cs" id="1"]
+
+[ext_resource type="Resource" path="res://data/patterns/consort_lash.tres" id="2"]
+
+[ext_resource type="Resource" path="res://data/patterns/consort_wake.tres" id="3"]
+
+[resource]
+script = ExtResource("1")
+Id = "hydras_consort"
+DisplayName = "The Consort"
+CodexText = "It circles because it cannot stop. Whatever it was before the water had it, it was something that swam, and it has kept only that."
+MaxHealth = 620.0
+BodyRadius = 18.0
+MoveSpeed = 116.0
+ContactDamage = 0.5
+Tint = Color(0.45, 0.72, 0.6, 1)
+Phase2At = 0.55
+Phase1A = ExtResource("2")
+Phase1Cooldown = 1.9
+Phase1Range = 320.0
+Phase1SpeedMultiplier = 1.0
+Phase2A = ExtResource("2")
+Phase2B = ExtResource("3")
+Phase2Cooldown = 1.5
+Phase2Range = 300.0
+Phase2SpeedMultiplier = 1.15
+Phase3At = 0.22
+Phase3A = ExtResource("3")
+Phase3B = ExtResource("2")
+Phase3Cooldown = 1.2
+Phase3Range = 260.0
+Phase3SpeedMultiplier = 1.3
+AddCount = 0
+AddInterval = 9999.0
+GrabSanityCost = 0.0
+GrabCooldown = 9999.0
+GrabRange = 0.0
+Phase2Line = "It stops circling for the first time, and the stopping is worse."
+Phase3Line = "Whatever kept its shape has given up. It swims through the air now, badly, and fast."
+DeathLine = "It sinks, and the circling goes on for a moment without it."
+TideBound = true
+SubmergedAtHighTide = false
+TideThreshold = 0.5
+TideExposedSpeedMultiplier = 1.6
+GoldReward = 60
+KeyReward = 0
+PhaseTransitionSeconds = 1.1

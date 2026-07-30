@@ -48,6 +48,7 @@ public sealed partial class TideTest : Node2D
         TestDrenchedLingers();
         TestTheDashDoesNotOutrunTheTide();
         TestSwimmersAreOnlyOnWetFloors();
+        TestTheTideDecidesWhichBossIsVulnerable();
         TestEveryRoomGetsAWaterline();
 
         GD.Print("================================================================");
@@ -392,6 +393,67 @@ public sealed partial class TideTest : Node2D
         }
 
         return (distance, frames, invuln);
+    }
+
+    // ---------------------------------------------------------------- Mother Hydra's Brood
+
+    /// <summary>
+    /// Exactly one of the brood is hittable at any moment — docs/05 §7's "the player must
+    /// fight the right one at the right time".
+    ///
+    /// THE PROPERTY, not the wiring. Both bosses being TideBound proves nothing; two bosses
+    /// submerged at the same time is a fight with a dead half, and two exposed at once is a
+    /// fight with no mechanic. Swept across a whole cycle, because the interesting failure is
+    /// at the handover — a threshold comparison using > on one and >= on the other leaves a
+    /// single tick where both are hittable or neither is, which is invisible in play and
+    /// exactly the kind of thing that surfaces as "sometimes my damage does nothing".
+    /// </summary>
+    private void TestTheTideDecidesWhichBossIsVulnerable()
+    {
+        var roster = Enemies.BossRoster.ForFloor(2);
+        Check(roster.Count == 2, $"floor 2 ends with two bosses ({roster.Count})");
+        if (roster.Count != 2) return;
+
+        int tideBound = 0;
+        foreach (Enemies.BossData d in roster) if (d.TideBound) tideBound++;
+        Check(tideBound == 2, $"both of the brood belong to the water ({tideBound} of 2)");
+
+        // The sweep. At every point in the cycle exactly one must be exposed.
+        int bothExposed = 0, bothSubmerged = 0, samples = 0;
+        for (float level = 0f; level <= 1.0001f; level += 0.005f)
+        {
+            int exposed = 0;
+            foreach (Enemies.BossData d in roster)
+            {
+                bool high = level >= d.TideThreshold;
+                bool submerged = high == d.SubmergedAtHighTide;
+                if (!submerged) exposed++;
+            }
+
+            samples++;
+            if (exposed == 2) bothExposed++;
+            if (exposed == 0) bothSubmerged++;
+        }
+
+        Check(bothExposed == 0,
+              $"never both hittable at once ({bothExposed} of {samples} tide levels)");
+        Check(bothSubmerged == 0,
+              $"and never both untouchable ({bothSubmerged} of {samples}) — " +
+              $"a window where nothing can be hurt is a fight that stops");
+
+        // The control: they must actually SWAP. Two bosses that are always the same way round
+        // satisfy "exactly one exposed" trivially and produce no mechanic at all.
+        Enemies.BossData a = roster[0], b = roster[1];
+        Check(a.SubmergedAtHighTide != b.SubmergedAtHighTide,
+              $"control: they take opposite halves of the cycle " +
+              $"({a.DisplayName} at {(a.SubmergedAtHighTide ? "high" : "low")}, " +
+              $"{b.DisplayName} at {(b.SubmergedAtHighTide ? "high" : "low")})");
+
+        // Every boss in the game must have its own voice, or a fight speaks in another's.
+        int voiceless = 0;
+        foreach (Enemies.BossData d in Enemies.BossRoster.All())
+            if (d.DeathLine.Length == 0 || d.Phase2Line.Length == 0) voiceless++;
+        Check(voiceless == 0, $"every boss has its own phase and death lines ({voiceless} without)");
     }
 
     // ---------------------------------------------------------------- The waterline

@@ -154,9 +154,17 @@ public sealed class Boss
 
     public void SetWalls(TileMask? walls) => _walls = walls;
 
+    /// <summary>
+    /// Speed multiplier from outside the fight — the tide, today (docs/05 §7: the exposed
+    /// consort is fast). Applied at the single integration point below rather than to
+    /// Data.MoveSpeed at every site that reads it, the same rule Enemy.Move follows and for
+    /// the same reason: the sites that would be forgotten are the lunge and the knockback.
+    /// </summary>
+    public float SpeedMultiplier { get; set; } = 1f;
+
     private void Move(float dt)
     {
-        Vector2 delta = Velocity * dt;
+        Vector2 delta = Velocity * SpeedMultiplier * dt;
         Position = _walls is null ? Position + delta : _walls.MoveCircle(Position, delta, BodyRadius);
     }
 

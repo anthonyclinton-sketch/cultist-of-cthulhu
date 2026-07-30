@@ -1,0 +1,49 @@
+[gd_resource type="Resource" script_class="BossData" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://src/Enemies/BossData.cs" id="1"]
+
+[ext_resource type="Resource" path="res://data/patterns/hydra_swell.tres" id="2"]
+
+[ext_resource type="Resource" path="res://data/patterns/hydra_undertow.tres" id="3"]
+
+[resource]
+script = ExtResource("1")
+Id = "mother_hydra"
+DisplayName = "Mother Hydra"
+CodexText = "She has not moved in nine hundred years and she does not need to. The hall was built around her, and the sea was let in afterwards, and both of those were her idea."
+MaxHealth = 1100.0
+BodyRadius = 34.0
+MoveSpeed = 0.0
+ContactDamage = 0.5
+Tint = Color(0.34, 0.56, 0.62, 1)
+Phase2At = 0.6
+Phase1A = ExtResource("2")
+Phase1Cooldown = 2.6
+Phase1Range = 900.0
+Phase1SpeedMultiplier = 0.0
+Phase2A = ExtResource("2")
+Phase2B = ExtResource("3")
+Phase2Cooldown = 2.1
+Phase2Range = 900.0
+Phase2SpeedMultiplier = 0.0
+Phase3At = 0.25
+Phase3A = ExtResource("3")
+Phase3B = ExtResource("2")
+Phase3Cooldown = 1.7
+Phase3Range = 900.0
+Phase3SpeedMultiplier = 0.0
+AddCount = 2
+AddInterval = 16.0
+GrabSanityCost = 0.0
+GrabCooldown = 9999.0
+GrabRange = 0.0
+Phase2Line = "The water goes out of her and does not come back. What is left standing is taller than the hall was built for."
+Phase3Line = "She opens. There is no face behind it, and there was never meant to be."
+DeathLine = "The tide goes out and keeps going. Somewhere under the floor, something much larger turns over and settles."
+TideBound = true
+SubmergedAtHighTide = true
+TideThreshold = 0.5
+TideExposedSpeedMultiplier = 1.0
+GoldReward = 140
+KeyReward = 1
+PhaseTransitionSeconds = 1.4

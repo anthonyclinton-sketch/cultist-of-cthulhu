@@ -78,7 +78,6 @@ public sealed partial class FloorRunner : Node2D
         _rng = Hash.Derive(GameRoot.Instance.RunSeed, "floor_runner");
         _run = GameRoot.Instance.Run;
 
-        LoadContent();
         ParseScreenshotArgs();
 
         BuildRunScopedNodes();
@@ -90,16 +89,9 @@ public sealed partial class FloorRunner : Node2D
 
     // ---------------------------------------------------------------- Setup
 
-    private void LoadContent()
-    {
-        _bossData = GD.Load<BossData>("res://data/bosses/thing_on_the_doorstep.tres");
-        if (_bossData is null) GD.PrintErr("[FloorRunner] failed to load the boss.");
-    }
-
     private void GenerateFloor()
     {
-        // Every authored room, gated only by MinFloor for now. NOT floor routing — FloorTag is
-        // still read by nothing, so floor 2 remains mostly Undercroft rooms. See RoomLibrary.
+        // Every authored room, preferring this floor's theme (see FloorGenerator.PickTemplate).
         var gen = new FloorGenerator(UndercroftContent.Flows(), RoomLibrary.All());
 
         // The floor seed derives from the RUN seed and the floor index, so floor 2 of a
@@ -225,6 +217,8 @@ public sealed partial class FloorRunner : Node2D
         _enemies.TideLevel = level;
         _enemies.Water = _tideField;
         _floorTiles.TideLevel = level;
+
+        ApplyTideToBosses(level);
     }
 
     /// <summary>
@@ -305,6 +299,13 @@ public sealed partial class FloorRunner : Node2D
         // the boss-adds path and the director keep pointing at the same list.
         _roster.Clear();
         _roster.AddRange(Bestiary.ForFloor(_run.FloorIndex));
+
+        // And so is the BOSS. This used to be a hardcoded path loaded once at _Ready, so
+        // every floor of a descent ended with floor 1's — a cultist in a cellar, met by a
+        // player standing in the sea.
+        _bossRoster = BossRoster.ForFloor(_run.FloorIndex);
+        _bossData = _bossRoster.Count > 0 ? _bossRoster[0] : null;
+        if (_bossData is null) GD.PrintErr($"[FloorRunner] floor {_run.FloorIndex} has no boss.");
 
         _director = new EncounterDirector(_roster, _enemies, _geometry,
                                           Hash.Derive(_run.FloorSeed, "encounters"));
@@ -1152,10 +1153,21 @@ public sealed partial class FloorRunner : Node2D
         }
 
         Vector2 centre = _geometry.RoomAnchorWorld(room);
-        var boss = new Boss(_bossData, centre + new Vector2(0f, -140f), _enemyBullets,
-                            Hash.Derive(GameRoot.Instance.RunSeed, "boss", room.NodeId));
-        boss.SetWalls(_enemies.Walls);
-        _enemies.RegisterBoss(boss);
+
+        // EVERY boss the floor ends with. Spread along the room's long axis rather than
+        // stacked: docs/05 §7 puts the matriarch "fixed at the far end of a flooded hall"
+        // with the consort circling, and two bodies spawned on the same point would resolve
+        // apart in a way nobody authored.
+        for (int i = 0; i < _bossRoster.Count; i++)
+        {
+            BossData data = _bossRoster[i];
+            float offset = _bossRoster.Count == 1 ? -140f : -220f + i * 300f;
+
+            var boss = new Boss(data, centre + new Vector2(0f, offset), _enemyBullets,
+                                Hash.Derive(GameRoot.Instance.RunSeed, "boss", room.NodeId + i * 7919));
+            boss.SetWalls(_enemies.Walls);
+            _enemies.RegisterBoss(boss);
+        }
 
         // The boss's own adds obey the Corruption thresholds like anything else that spawns.
         _enemies.SpawnAwakened = CorruptionTiers.EnemiesAwakened(_player.Corruption);
@@ -1166,11 +1178,44 @@ public sealed partial class FloorRunner : Node2D
         _pendingSealRoom = room.NodeId;
         _run.Telemetry.BeginRoom(_roomsCleared + 1, _player.Sanity);
 
-        GD.Print($"[BOSS] {_bossData.DisplayName} — {_bossData.MaxHealth:F0} HP, " +
-                 $"phases at {_bossData.Phase2At:P0} / {_bossData.Phase3At:P0}");
+        foreach (BossData d in _bossRoster)
+        {
+            GD.Print($"[BOSS] {d.DisplayName} — {d.MaxHealth:F0} HP, " +
+                     $"phases at {d.Phase2At:P0} / {d.Phase3At:P0}" +
+                     (d.TideBound
+                         ? $", submerged at {(d.SubmergedAtHighTide ? "HIGH" : "LOW")} tide"
+                         : ""));
+        }
+    }
+
+    /// <summary>
+    /// The tide decides who can be hurt — docs/05 §7.
+    ///
+    /// Pushed every tick from the one clock the floor already runs, so the swap is exactly as
+    /// predictable as the water the player is standing in. The matriarch and the consort carry
+    /// OPPOSITE thresholds, which is what makes the fight "hit the right one at the right
+    /// time" rather than "hit whichever is closer".
+    ///
+    /// Speed too: an exposed consort is fast (docs/05 §7 says so in as many words). A boss
+    /// that is merely hittable in its window is a target, not a threat.
+    /// </summary>
+    private void ApplyTideToBosses(float level)
+    {
+        for (int i = 0; i < _enemies.Bosses.Count; i++)
+        {
+            Boss b = _enemies.Bosses[i];
+            if (!b.Data.TideBound) continue;
+
+            bool high = level >= b.Data.TideThreshold;
+            b.Submerged = high == b.Data.SubmergedAtHighTide;
+            b.SpeedMultiplier = b.Submerged ? 1f : b.Data.TideExposedSpeedMultiplier;
+        }
     }
 
     private BossData? _bossData;
+
+    /// <summary>Every boss this floor ends with. One on the Undercroft, two on the Wharfs.</summary>
+    private List<BossData> _bossRoster = new();
     private int _bossRoom = -1;
 
     /// <summary>
@@ -1231,13 +1276,9 @@ public sealed partial class FloorRunner : Node2D
         _enemyBullets.Clear();
         _player.AddTrauma(0.55f);
 
-        string line = phase switch
-        {
-            2 => "\"—and I told her, I told her the WELL was—\" The sentence does not finish. "
-                 + "The body finds a new arrangement.",
-            _ => "It leaves the body where it falls and comes for the only other one in the room.",
-        };
-        GD.Print($"[BOSS] {boss.Data.DisplayName} phase {phase}. {line}");
+        string line = boss.Data.LineForPhase(phase);
+        GD.Print($"[BOSS] {boss.Data.DisplayName} phase {phase}." +
+                 (line.Length > 0 ? $" {line}" : ""));
     }
 
     private void SpawnBossAdds(Boss boss, int count)
@@ -1255,8 +1296,14 @@ public sealed partial class FloorRunner : Node2D
 
     private void OnBossDefeated()
     {
+        // The LAST boss standing is the one whose death ends the fight, so its line is the
+        // one that closes it — not the roster's first entry, which on the Wharfs is the
+        // matriarch and is frequently not who the player finished on.
         BossData data = _bossData!;
-        GD.Print($"[BOSS] {data.DisplayName} is dead. What is left is a man, and he is grateful.");
+        for (int i = 0; i < _enemies.Bosses.Count; i++) data = _enemies.Bosses[i].Data;
+
+        GD.Print($"[BOSS] {data.DisplayName} is dead." +
+                 (data.DeathLine.Length > 0 ? $" {data.DeathLine}" : ""));
 
         // Where the last one fell, before the list is cleared — that is where the drop lands.
         Vector2 at = _player.GlobalPosition;
@@ -1502,7 +1549,12 @@ public sealed partial class FloorRunner : Node2D
             var deadline = new CaptureDeadline
             {
                 Name = nameof(CaptureDeadline),
-                Seconds = _screenshotAfter / 60.0 + 5.0,
+                // Generous on purpose. This breaks hangs; it does not race the normal path.
+                // At +5s it pre-empted a healthy boss-room capture, because hit stop slows
+                // physics ticks against the wall clock and a two-boss fight has twice the
+                // phase transitions to slow them with — so the frame counter legitimately
+                // runs behind real time.
+                Seconds = _screenshotAfter / 60.0 + 25.0,
                 OnDeadline = () =>
                 {
                     GD.PrintErr($"[screenshot] frame {_screenshotAfter} was never reached — " +
