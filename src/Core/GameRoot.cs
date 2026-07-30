@@ -35,10 +35,21 @@ public sealed partial class GameRoot : Node
     /// more than one floor of content.</summary>
     private int _floorsPerRun = 1;
 
+    /// <summary>Debug only — <c>--start-floor=N</c>. The run begins here instead of floor 1.</summary>
+    private int _startFloor = 1;
+
     /// <summary>Begin a fresh run. Everything carried is discarded.</summary>
     public Meta.RunState StartNewRun()
     {
-        Run = new Meta.RunState { Seed = RunSeed, FinalFloor = _floorsPerRun };
+        // FinalFloor is raised to at least the starting floor, or a run begun on floor 2 with
+        // the default FinalFloor of 1 is already past its end — IsFinalFloor is
+        // `FloorIndex >= FinalFloor`, so the first stair would finish the run instantly.
+        Run = new Meta.RunState
+        {
+            Seed = RunSeed,
+            FloorIndex = _startFloor,
+            FinalFloor = Math.Max(_floorsPerRun, _startFloor),
+        };
         return Run;
     }
 
@@ -96,6 +107,15 @@ public sealed partial class GameRoot : Node
                      && int.TryParse(args[i][9..], out int floors))
             {
                 _floorsPerRun = Math.Clamp(floors, 1, 6);
+            }
+            // Begin the run partway down. The only practical way to look at floor-2 content
+            // while floor 1 is the only floor with a boss on it: reaching floor 2 otherwise
+            // means killing the floor-1 boss first, and a --room-demo capture fires at frame
+            // 20, long before that. Same purpose as --corruption= — see the note there.
+            else if (args[i].StartsWith("--start-floor=", StringComparison.Ordinal)
+                     && int.TryParse(args[i][14..], out int start))
+            {
+                _startFloor = Math.Clamp(start, 1, 6);
             }
         }
 

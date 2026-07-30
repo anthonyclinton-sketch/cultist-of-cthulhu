@@ -48,7 +48,7 @@ public sealed partial class GenerationTest : Node
     public override void _Ready()
     {
         var flows = UndercroftContent.Flows();
-        var rooms = UndercroftContent.Rooms();
+        var rooms = RoomLibrary.All();
 
         GD.Print("================================================================");
         GD.Print(" FLOOR GENERATION SWEEP");

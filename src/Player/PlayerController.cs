@@ -109,6 +109,27 @@ public sealed partial class PlayerController : CharacterBody2D
     public float DamageIFramesRemaining => _damageIFrames;
 
     /// <summary>
+    /// Debug only — the player cannot be hurt. Set by <c>--room-demo</c> captures.
+    ///
+    /// A room capture parks a STATIONARY player in a live combat room to photograph its
+    /// geometry, and a stationary player dies in about nine seconds. That is not a a bug in
+    /// the room, it is the harness being shot; but it ended the run, which paused the tree,
+    /// which froze the capture countdown, which hung the process. Looking at a room across a
+    /// full 20s tide cycle is impossible without this.
+    /// </summary>
+    public bool DebugInvulnerable { get; set; }
+
+    /// <summary>
+    /// Hits that landed and were ignored because of <see cref="DebugInvulnerable"/>.
+    ///
+    /// Deliberately counted rather than prevented earlier: the bullet still hits, the contact
+    /// still registers, and only the consequence is dropped. That keeps the number meaningful
+    /// as a LETHALITY readout — an autorun reporting zero absorbed hits fought nothing, which
+    /// is a broken floor wearing a passing gate.
+    /// </summary>
+    public int DebugHitsIgnored { get; private set; }
+
+    /// <summary>
     /// What one incoming hit is multiplied by — ×1 on floors 1–2, ×2 on floors 3+, and ×2
     /// against a boss from phase 2 on any floor (docs/02 §2). Pushed down each tick by the
     /// owning scene, like <see cref="Enemies.EnemyManager.ExecuteDamageBonus"/>.
@@ -1011,6 +1032,8 @@ public sealed partial class PlayerController : CharacterBody2D
 
     private void TakeHit(float hearts)
     {
+        if (DebugInvulnerable) { DebugHitsIgnored++; return; }
+
         // ELDER SIGN (docs/04 §5.3) — once per room, a hit that would kill you does not.
         //
         // Checked BEFORE armour, and before HitsTaken is incremented. Armour absorbs the

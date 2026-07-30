@@ -98,7 +98,9 @@ public sealed partial class FloorRunner : Node2D
 
     private void GenerateFloor()
     {
-        var gen = new FloorGenerator(UndercroftContent.Flows(), UndercroftContent.Rooms());
+        // Every authored room, gated only by MinFloor for now. NOT floor routing — FloorTag is
+        // still read by nothing, so floor 2 remains mostly Undercroft rooms. See RoomLibrary.
+        var gen = new FloorGenerator(UndercroftContent.Flows(), RoomLibrary.All());
 
         // The floor seed derives from the RUN seed and the floor index, so floor 2 of a
         // given run is always the same floor 2 (docs/06 §7) and a re-entered floor is not a
@@ -366,6 +368,25 @@ public sealed partial class FloorRunner : Node2D
         PlacedRoom entrance = _floor.FindRole(RoomRole.Entrance)!;
         _player.GlobalPosition = _geometry.RoomAnchorWorld(entrance);
         _player.RestoreFrom(_run);
+
+        // THE AUTORUN IS A STRUCTURE TEST, and this is what makes it stay one.
+        //
+        // The harness does not dodge, aim, reload or Banish (see the note in EndRun). It
+        // survived floor 3 only while floor 3's roster was five Undercroft enemies; adding a
+        // Brine Priest — a Turret with a sustained 16-burst spiral — killed it outright on
+        // the floor where damage doubles. Measured: gating the two new enemies out makes the
+        // same seed win again.
+        //
+        // That is the game being correct and the gate being the wrong shape. The assertions
+        // here are "every room, the boss, the summary, the descent carried the run"; none of
+        // them is about combat skill, and leaving them hostage to it means every future
+        // enemy blocks the suite until someone tunes content against a bot — which docs/11
+        // and HANDOVER §5.2 both warn is guesswork against a felt experience nobody has had.
+        //
+        // Hits still land and are still counted, so lethality remains visible. See
+        // FinishAutorun, which asserts the harness was actually shot at.
+        if (_autorun) _player.DebugInvulnerable = true;
+
         if (_autorun) AssertRestored();
         _player.OnFloorBegan();
         _camera.ResetSmoothing();
@@ -595,6 +616,13 @@ public sealed partial class FloorRunner : Node2D
         Check(_restoreFailures == 0,
               $"the run survived every floor transition and room re-entry " +
               $"({_restoreFailures} discrepancies)");
+
+        // The control for making the harness invulnerable. Without it, "every room was
+        // cleared" is equally true of a run through empty rooms — and an encounter director
+        // that spawned nothing would pass every other assertion in this list.
+        Check(_player.DebugHitsIgnored > 0,
+              $"the harness was actually shot at ({_player.DebugHitsIgnored} hits absorbed) " +
+              $"— it is invulnerable, not unopposed");
 
         // The whole reason for a RunState. If any of this resets at a floor boundary the
         // player silently loses their run, and nothing else in the project would notice.
@@ -1302,9 +1330,83 @@ public sealed partial class FloorRunner : Node2D
         // at all — a wave telegraph only exists while the autorun is fighting.
         if (_autorun && _screenshotPath.Length > 0 && !_screenshotAfterExplicit)
             _screenshotAfter = int.MaxValue;
+
+        // Arm the backstop. Only for an explicit frame — an autorun capture waits for the
+        // summary by design and has no deadline to miss. The margin is generous because it
+        // exists to break a hang, not to race the normal path.
+        if (_screenshotPath.Length > 0 && _screenshotAfterExplicit)
+        {
+            var deadline = new CaptureDeadline
+            {
+                Name = nameof(CaptureDeadline),
+                Seconds = _screenshotAfter / 60.0 + 5.0,
+                OnDeadline = () =>
+                {
+                    GD.PrintErr($"[screenshot] frame {_screenshotAfter} was never reached — " +
+                                $"something paused the tree (a run summary, or the Reverie). " +
+                                $"Capturing anyway so this exits.");
+                    CaptureAndQuit();
+                },
+            };
+            AddChild(deadline);
+        }
     }
 
     private bool _screenshotAfterExplicit;
+
+    /// <summary>
+    /// A capture deadline that survives a paused tree.
+    ///
+    /// THE HANG THIS FIXES. Anything that sets <c>GetTree().Paused</c> — the run summary, the
+    /// Reverie — stops FloorRunner's _PhysicsProcess, and with it the frame counter the
+    /// capture waits on. The process then sits there forever with a window open, no error and
+    /// no output: a capture requested at frame 610 of a room whose player died at frame 540
+    /// never returns, and the only symptom is an app that will not exit.
+    ///
+    /// ProcessMode.Always is what makes this node immune, and it is the only node here that
+    /// should be — FloorRunner itself must stay pausable or the floor would keep simulating
+    /// behind the Reverie.
+    ///
+    /// It does not replace the normal capture path; it is a backstop that guarantees
+    /// termination. A debug tool that fails tells you something. One that hangs tells you
+    /// nothing and costs you the time it takes to notice.
+    /// </summary>
+    private sealed partial class CaptureDeadline : Node
+    {
+        public System.Action? OnDeadline;
+
+        /// <summary>Real seconds to wait. NOT a frame count — _Process runs at the render
+        /// rate and the capture counts PHYSICS ticks, so on a machine rendering at 300fps a
+        /// frame-for-frame deadline fires five times too early and pre-empts every healthy
+        /// capture. It did exactly that on the first attempt.</summary>
+        public double Seconds;
+
+        private double _elapsed;
+
+        public override void _Ready() => ProcessMode = ProcessModeEnum.Always;
+
+        public override void _Process(double delta)
+        {
+            if (OnDeadline is null) return;
+
+            _elapsed += delta;
+            if (_elapsed < Seconds) return;
+
+            System.Action fire = OnDeadline;
+            OnDeadline = null;      // once only
+            fire();
+        }
+    }
+
+    /// <summary>Capture the viewport and quit. The one place that does it, so the normal path
+    /// and the deadline cannot disagree about what a capture is.</summary>
+    private void CaptureAndQuit()
+    {
+        Image shot = GetViewport().GetTexture().GetImage();
+        Error e = shot.SavePng(_screenshotPath);
+        GD.Print($"[screenshot] {_screenshotPath} → {e}");
+        GetTree().Quit(e == Error.Ok ? 0 : 1);
+    }
 
     private void TickScreenshot()
     {
@@ -1381,14 +1483,19 @@ public sealed partial class FloorRunner : Node2D
         // two thirds of the shot.
         if (_frameCount == _screenshotAfter - 2) HideOverlayForCapture();
 
-        if (_frameCount != _screenshotAfter) return;
+        // >= rather than ==, and this is not defensiveness — it is the fix for a hang.
+        //
+        // The run summary sets GetTree().Paused = true, which stops _PhysicsProcess and
+        // therefore stops _frameCount. An exact-equality trigger past that moment can never
+        // fire, so the process sits there forever with a window open and no error: a capture
+        // at frame 610 of a room-demo whose stationary player dies at frame 540 simply never
+        // returns. A debug tool that hangs is worse than one that fails, because a failure
+        // says what happened.
+        if (_frameCount < _screenshotAfter) return;
 
         if (_roomDemo.Length > 0 || _reverieDemo || _autorun)
         {
-            Image shot = GetViewport().GetTexture().GetImage();
-            Error e = shot.SavePng(_screenshotPath);
-            GD.Print($"[screenshot] {_screenshotPath} → {e}");
-            GetTree().Quit(e == Error.Ok ? 0 : 1);
+            CaptureAndQuit();
             return;
         }
 
@@ -1424,19 +1531,45 @@ public sealed partial class FloorRunner : Node2D
     /// <summary>Drop the player into the first room of a given role, for a capture.</summary>
     private void TeleportToRole(string roleName)
     {
-        if (!System.Enum.TryParse(roleName, ignoreCase: true, out RoomRole role))
+        // A TEMPLATE ID is accepted as well as a role, because authoring a room needs a way to
+        // look at THAT room. By role, a floor with nine CombatMed rooms shows whichever one
+        // the generator placed first, so the one being worked on is the one you cannot see.
+        PlacedRoom? room = null;
+        RoomRole role = RoomRole.CombatMed;
+        bool byTemplateId = false;
+
+        foreach (PlacedRoom r in _floor.Rooms)
         {
-            GD.PrintErr($"[screenshot] unknown room role '{roleName}'");
-            return;
+            if (!string.Equals(r.Template.Id, roleName, System.StringComparison.OrdinalIgnoreCase)) continue;
+            room = r;
+            role = r.Role;
+            byTemplateId = true;
+            break;
         }
 
-        PlacedRoom? room = _floor.FindRole(role);
+        if (room is null)
+        {
+            if (!System.Enum.TryParse(roleName, ignoreCase: true, out role))
+            {
+                GD.PrintErr($"[screenshot] '{roleName}' is neither a room role nor a template " +
+                            $"on this floor.");
+                return;
+            }
+            room = _floor.FindRole(role);
+        }
+
         if (room is null) { GD.PrintErr($"[screenshot] this floor has no {role} room"); return; }
 
         // Enough gold and keys to see the prices being met rather than refused — a shop
         // rendered entirely in "cannot afford" is not a useful picture of a shop.
         _player.AddGold(600);
         _player.AddKeys(3);
+
+        // The harness does not dodge. In a combat room it dies in about nine seconds, which
+        // ends the run, pauses the tree and freezes the capture countdown — so any capture
+        // past that frame used to hang forever. A room capture is a photograph of geometry;
+        // the player's survival is not part of the subject.
+        _player.DebugInvulnerable = true;
 
         _player.GlobalPosition = _geometry.RoomAnchorWorld(room);
         EnterRoom(room.NodeId);
@@ -1448,7 +1581,12 @@ public sealed partial class FloorRunner : Node2D
         // Hold the map open for combat captures. At 130px the minimap's marks are two
         // pixels across and a capture of them is unreadable, which defeats the point of
         // taking one.
-        if (IsCombatRole(role)) Input.ActionPress("map");
+        //
+        // NOT when the room was asked for by template id. Naming a specific room means
+        // wanting to see THAT ROOM — its channel, its cover, where the water sits — and the
+        // map covers exactly the thing being inspected. Asking by role is asking about the
+        // encounter; asking by name is asking about the geometry.
+        if (IsCombatRole(role) && !byTemplateId) Input.ActionPress("map");
 
         // The camera smooths toward the player, so a teleport leaves it a room behind for
         // most of a capture window. Snap it.
