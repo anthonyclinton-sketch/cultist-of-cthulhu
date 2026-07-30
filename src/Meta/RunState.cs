@@ -60,6 +60,20 @@ public sealed class RunState
     /// </summary>
     public int FinalFloor = 1;
 
+    /// <summary>
+    /// The floor this run BEGAN on. 1 in a real run; <c>--start-floor=N</c> moves it.
+    ///
+    /// Recorded because two run-scoped assertions quietly assumed floor 1. "Every floor was
+    /// cleared" compared FloorsCleared against FinalFloor, which are different units the
+    /// moment a run does not start at the top — begin on floor 2 and finish it and you have
+    /// cleared one floor out of a final floor of two, which reads as a failure and is not one.
+    /// A false failure in gate output is how people learn to stop reading gate output.
+    /// </summary>
+    public int StartFloor = 1;
+
+    /// <summary>Floors this run has to clear to win, given where it started.</summary>
+    public int FloorsToClear => System.Math.Max(1, FinalFloor - StartFloor + 1);
+
     // --- Progression that survives a floor ----------------------------------
 
     public float Hearts = 3f;

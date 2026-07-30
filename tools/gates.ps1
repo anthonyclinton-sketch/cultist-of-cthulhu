@@ -7,6 +7,7 @@
         ./tools/gates.ps1 -Floor -Autorun       WATCH the run loop play itself
         ./tools/gates.ps1 -Floor -Corruption 3  start Corrupted (3 = Awakened, 10 = Yellow Sign)
         ./tools/gates.ps1 -Floor -FloodDemo     flood every room, to SEE the Tide (docs/07 §3)
+        ./tools/gates.ps1 -Floor -StartFloor 2  BEGIN on floor 2, without killing boss 1 first
         ./tools/gates.ps1 -Arena                play the M1 combat slice (fixed arena)
         ./tools/gates.ps1 -Arena -MeteredDodge  play Build B (the M1 control arm)
         ./tools/gates.ps1 -Play                 the bullet stress arena
@@ -28,6 +29,7 @@ param(
     [switch]$MeteredDodge,
     [switch]$Autorun,
     [int]$Floors = 1,
+    [int]$StartFloor = 1,
     [double]$Corruption = 0,
     [switch]$FloodDemo,
     [switch]$SkipBuild
@@ -79,6 +81,11 @@ if ($Floor) {
     # synthesises a channel into every room so the mechanic can be watched and walked into
     # before a Wharf template exists — same purpose as -Corruption above.
     if ($FloodDemo) { $extra += "--flood-demo" }
+    # Begin partway down. Floor 1 is the only floor with a boss on it, so reaching floor 2
+    # otherwise means winning a whole floor first — which makes testing floor-2 content cost
+    # five minutes of floor 1 every time. The run still ENDS on the deepest floor asked for,
+    # so -StartFloor 2 alone is a one-floor run that happens to be floor 2.
+    if ($StartFloor -gt 1) { $extra += "--start-floor=$StartFloor" }
     & $godot --path $root res://scenes/debug/FloorRunner.tscn --seed $Seed @extra
     exit $LASTEXITCODE
 }

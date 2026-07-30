@@ -608,8 +608,9 @@ public sealed partial class FloorRunner : Node2D
 
         Check(_run.Outcome == RunOutcome.Won,
               $"the run was won by killing the boss (outcome {_run.Outcome})");
-        Check(_run.FloorsCleared == _run.FinalFloor,
-              $"every floor was cleared ({_run.FloorsCleared}/{_run.FinalFloor})");
+        Check(_run.FloorsCleared == _run.FloorsToClear,
+              $"every floor was cleared ({_run.FloorsCleared}/{_run.FloorsToClear}" +
+              (_run.StartFloor > 1 ? $", started on floor {_run.StartFloor}" : "") + ")");
         Check(_run.RoomsCleared > 5, $"rooms were actually fought ({_run.RoomsCleared})");
         Check(_run.Telemetry.TotalRooms > 0,
               $"telemetry recorded the run ({_run.Telemetry.TotalRooms} room records)");
@@ -626,7 +627,13 @@ public sealed partial class FloorRunner : Node2D
 
         // The whole reason for a RunState. If any of this resets at a floor boundary the
         // player silently loses their run, and nothing else in the project would notice.
-        if (_run.FinalFloor > 1)
+        //
+        // Gated on a stair having actually been TAKEN, not on the run being multi-floor.
+        // `--start-floor=2` gives a one-floor run with FinalFloor 2, so the old condition
+        // fired and compared against a _carriedGold that was still its -1 sentinel: a
+        // guaranteed failure reported as "gold carried down the stair (-1 -> 80)", about a
+        // stair that never existed.
+        if (_carriedGold >= 0)
         {
             // "Gold never went DOWN" is not the claim this gate wants to make, and it broke the
             // moment the seed→floor mapping moved: the harness bought a 3-gold item after the
@@ -634,7 +641,7 @@ public sealed partial class FloorRunner : Node2D
             // like is gold going back to its STARTING value with a floor's earnings erased —
             // so the assertion is conservation, not monotonicity, and the harness's own
             // spending is subtracted because it is the only thing here allowed to spend.
-            Check(_carriedGold >= 0 && _run.Gold + _autorunGoldSpent >= _carriedGold,
+            Check(_run.Gold + _autorunGoldSpent >= _carriedGold,
                   $"gold carried down the stair ({_carriedGold} -> {_run.Gold}, " +
                   $"{_autorunGoldSpent} spent in shops)");
             Check(_run.Circle.UsedCells >= _carriedCells,

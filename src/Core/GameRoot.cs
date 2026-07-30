@@ -48,6 +48,7 @@ public sealed partial class GameRoot : Node
         {
             Seed = RunSeed,
             FloorIndex = _startFloor,
+            StartFloor = _startFloor,
             FinalFloor = Math.Max(_floorsPerRun, _startFloor),
         };
         return Run;
