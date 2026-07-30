@@ -1377,7 +1377,7 @@ public sealed partial class FloorRunner : Node2D
         float budget = DreadBudget.For(_run.FloorIndex, _roomsCleared, room.Template, room.Role,
                                        _player.Corruption, power);
 
-        if (!_director.Begin(room, budget, _enemies.Walls))
+        if (!_director.Begin(room, budget, _enemies.Walls, _player.GlobalPosition))
         {
             _clearedRooms.Add(room.NodeId);
             return;

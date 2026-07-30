@@ -275,12 +275,37 @@ public sealed partial class EncounterTest : Node2D
         Vector2 at = geometry.RoomAnchorWorld(hard);
 
         // A budget big enough to demand three waves.
-        Check(director.Begin(hard, 260f, mask), "a hard room produces an encounter");
+        Check(director.Begin(hard, 260f, mask, at), "a hard room produces an encounter");
         Check(director.WaveCount >= 2, $"a 260-budget room splits into waves ({director.WaveCount})");
 
+        // WAVE ONE TELEGRAPHS, like every wave after it. It used to arrive the instant the
+        // room began, which is how an enemy came to materialise on a player who had not
+        // finished walking through the door.
+        Check(enemies.AliveCount == 0,
+              $"wave one has not landed yet — it telegraphs ({enemies.AliveCount} alive)");
+        Check(director.PendingSpawns.Count > 0,
+              $"and its arrival is being shown first ({director.PendingSpawns.Count} markers)");
+
+        // NOTHING APPEARS ON THE PLAYER. The reported bug, as an assertion — checked on the
+        // telegraph markers, which are the positions the enemies will occupy.
+        float closest = float.MaxValue;
+        foreach (Vector2 p in director.PendingSpawns) closest = Mathf.Min(closest, p.DistanceTo(at));
+        Check(closest >= 88f,
+              $"and none of it lands on the player (closest marker {closest:F0}px)");
+
+        enemies.PlayerPosition = at;
+        for (int t = 0; t < 120 && enemies.AliveCount == 0; t++) director.Tick(1f / 60f, at);
+
         int firstWave = enemies.AliveCount;
-        Check(firstWave > 0, $"wave one spawned ({firstWave})");
+        Check(firstWave > 0, $"wave one arrives once the telegraph completes ({firstWave})");
         Check(director.WavesSpawned == 1, "only wave one has spawned");
+
+        // And the bodies really are clear of the player, not just the markers.
+        float closestBody = float.MaxValue;
+        foreach (Enemy e in enemies.Enemies)
+            if (e.Alive) closestBody = Mathf.Min(closestBody, e.Position.DistanceTo(at));
+        Check(closestBody >= 80f,
+              $"no enemy body starts on top of the player (closest {closestBody:F0}px)");
 
         // THE "NEVER ON A TIMER" ASSERTION. Ten seconds with the whole wave alive.
         enemies.PlayerPosition = at;

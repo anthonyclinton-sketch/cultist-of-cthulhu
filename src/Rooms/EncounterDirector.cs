@@ -96,7 +96,7 @@ public sealed class EncounterDirector
     /// Plan the room and spawn its first wave. Returns false if the room got no enemies at
     /// all, which the caller treats as already cleared.
     /// </summary>
-    public bool Begin(PlacedRoom room, float budget, TileMask? walls)
+    public bool Begin(PlacedRoom room, float budget, TileMask? walls, Vector2 playerPos)
     {
         _room = room;
         Budget = budget;
@@ -113,8 +113,17 @@ public sealed class EncounterDirector
         Active = true;
         if (_waves.Count == 0) { Active = false; return false; }
 
-        // Wave one arrives with the player, untelegraphed — they walked in on it.
-        SpawnWave(0, telegraph: false);
+        // WAVE ONE TELEGRAPHS TOO, like every wave after it.
+        //
+        // It used to arrive untelegraphed on the reasoning that the player "walked in on it".
+        // That reads well and plays badly: the room seals behind you, so the first wave is the
+        // one instalment you cannot back out of, and it was the one arriving with no warning
+        // and no reference to where you were standing. Reported from play as an enemy
+        // materialising on the player and taking a heart before they had moved.
+        //
+        // The 0.6s telegraph is not a difficulty change — the same enemies arrive at the same
+        // anchors — it is the difference between an encounter and an ambush.
+        SpawnWave(0, telegraph: true, playerPos);
         return true;
     }
 
@@ -254,12 +263,35 @@ public sealed class EncounterDirector
     /// anchor is free, the marker is drawn clamped to the screen edge instead, which is
     /// R4's inbound-marker clause.
     /// </summary>
+    /// <summary>
+    /// Nothing spawns closer to the player than this. docs/05 R5 in spirit: an enemy that
+    /// appears inside you is not a difficulty, it is a hit you were never offered a chance to
+    /// avoid.
+    ///
+    /// ~5.6 tiles, which is comfortably outside the player's reach and far enough that even a
+    /// Rusher's opening lunge can be seen coming.
+    /// </summary>
+    private const float MinSpawnDistance = 90f;
+
+    /// <summary>
+    /// Pick where one enemy appears.
+    ///
+    /// THE BUG THIS FIXES, reported from play: an enemy spawned on top of the player the
+    /// instant they entered a room and took a heart off them. The minimum-distance rule
+    /// existed, but only inside the telegraphed branch — the first wave took an early return
+    /// three lines up and read straight out of a shuffled anchor grid with no reference to
+    /// where the player was standing. The one wave that spawns while the player is walking
+    /// through the door was the one wave that did not check.
+    ///
+    /// The distance rule is now unconditional and the FALLBACK respects it too. The old
+    /// fallback returned `_anchors[index % count]` when nothing satisfied the constraints,
+    /// which in a small or heavily-obstructed room is exactly the case where that arbitrary
+    /// anchor is likely to be the one the player is standing on.
+    /// </summary>
     private Vector2 ChooseAnchor(int index, bool preferVisible, Vector2 playerPos)
     {
         if (_anchors.Count == 0)
             return _room is not null ? _geometry.RoomAnchorWorld(_room) : playerPos;
-
-        if (!preferVisible) return _anchors[index % _anchors.Count];
 
         // Half a viewport, so "visible" means comfortably inside the frame rather than on its
         // lip. Native resolution is 640x360 (docs/10 §1.2).
@@ -267,21 +299,35 @@ public sealed class EncounterDirector
 
         int best = -1;
         float bestDist = float.MaxValue;
+
+        // Fallback: whatever is FURTHEST from the player. Used when no anchor satisfies the
+        // preferences, and safe by construction — the worst case is an enemy arriving from
+        // across the room, which is a fight rather than an ambush.
+        int furthest = index % _anchors.Count;
+        float furthestDist = -1f;
+
         for (int i = 0; i < _anchors.Count; i++)
         {
-            Vector2 a = _anchors[(index + i) % _anchors.Count];
-            Vector2 d = a - playerPos;
-            if (Mathf.Abs(d.X) > HalfW || Mathf.Abs(d.Y) > HalfH) continue;
-
-            // Not on top of the player either — R5's spirit: nothing appears inside them.
+            int at = (index + i) % _anchors.Count;
+            Vector2 d = _anchors[at] - playerPos;
             float dist = d.Length();
-            if (dist < 90f) continue;
+
+            if (dist > furthestDist) { furthestDist = dist; furthest = at; }
+
+            // HARD, and checked before anything else. Every other rule here is a preference.
+            if (dist < MinSpawnDistance) continue;
+
+            if (preferVisible && (Mathf.Abs(d.X) > HalfW || Mathf.Abs(d.Y) > HalfH)) continue;
+
+            // Closest of the acceptable ones when telegraphing, so a wave lands around the
+            // player rather than in the far corner; otherwise first acceptable is fine.
+            if (!preferVisible) return _anchors[at];
             if (dist >= bestDist) continue;
             bestDist = dist;
-            best = (index + i) % _anchors.Count;
+            best = at;
         }
 
-        return best >= 0 ? _anchors[best] : _anchors[index % _anchors.Count];
+        return best >= 0 ? _anchors[best] : _anchors[furthest];
     }
 
     // ---------------------------------------------------------------- Tick
