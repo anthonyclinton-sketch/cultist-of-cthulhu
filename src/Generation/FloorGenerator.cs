@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using CultistOfCthulhu.Core;
 using Godot;
@@ -115,10 +116,27 @@ public sealed class FloorGenerator
     /// room set has drifted into being hard to place.</summary>
     public bool UsedFallback { get; private set; }
 
+    /// <summary>
+    /// Why the AUTHORED flow gave up, when <see cref="UsedFallback"/> is true.
+    ///
+    /// Needed because the fallback loop reuses the same `out failure` and overwrites it with
+    /// the empty string of its own success — so the one moment the cause matters is the one
+    /// moment it was being discarded, and the sweep reported "135x " with a blank reason.
+    /// </summary>
+    public string LastAuthoredFailure { get; private set; } = "";
+
+    /// <summary>The flow and room target the authored attempts were working with. Reported
+    /// alongside <see cref="LastAuthoredFailure"/> so a fallback rate can be attributed to a
+    /// flow and a length rather than guessed at — raising the backtrack budget was the first
+    /// guess, and it bought 0.2 points of fallback rate for 75% more sweep time.</summary>
+    public string LastAuthoredFlowId { get; private set; } = "";
+    public int LastRoomTarget { get; private set; } = -1;
+
     public GeneratedFloor? Generate(ulong floorSeed, int floorIndex, out string failure)
     {
         failure = "";
         UsedFallback = false;
+        LastAuthoredFailure = "";
 
         // THE FLOW IS CHOSEN ONCE, and every retry keeps it.
         //
@@ -135,12 +153,22 @@ public sealed class FloorGenerator
         // retry budget exists to find a layout for THIS floor, not to shop for a floor.
         FloorFlow chosen = _flows[new Rng(Hash.Combine(floorSeed, "flow")).NextInt(0, _flows.Count)];
 
+        // THE ROOM COUNT IS CHOSEN ONCE TOO, for exactly the same reason and it is not a
+        // hypothetical: rolling it per attempt cost 0.6 rooms of mean floor length. A longer
+        // floor is harder to place, so it fails validation more often, so the attempt that
+        // SUCCEEDS is biased toward the short end — the retry loop was quietly shopping for a
+        // small floor the same way it used to shop for an easy flow. Floor 4 came out at 15.4
+        // rooms against a 16.0 target with the band 14–18, which looks fine and is wrong.
+        int roomTarget = RoomTarget(floorSeed, floorIndex);
+        LastAuthoredFlowId = chosen.Id;
+        LastRoomTarget = roomTarget;
+
         for (int attempt = 0; attempt < MaxAttempts; attempt++)
         {
             ulong seed = Hash.Combine(floorSeed, attempt);
             var rng = new Rng(seed);
 
-            GeneratedFloor? floor = TryGenerate(rng, seed, floorIndex, out failure, chosen);
+            GeneratedFloor? floor = TryGenerate(rng, seed, floorIndex, roomTarget, out failure, chosen);
             if (floor is null) continue;
 
             floor.Attempts = attempt + 1;
@@ -151,11 +179,17 @@ public sealed class FloorGenerator
         // trivially placeable. A generator that can return NOTHING is a generator that can
         // end a run for reasons the player cannot see or influence, so the last resort is
         // a guaranteed floor rather than a failure.
+        LastAuthoredFailure = failure;
+
         FloorFlow fallback = FallbackFlow();
         for (int attempt = 0; attempt < MaxAttempts; attempt++)
         {
+            // Target -1: the fallback flow has no expandable chain, so it cannot hit a band
+            // however hard it is asked to. Passing the target anyway would make its injections
+            // suppress themselves down to a 8-room floor with no shop — the escape hatch's job
+            // is to hand the player a complete floor, and content beats length here.
             ulong seed = Hash.Combine(floorSeed, 1000 + attempt);
-            GeneratedFloor? floor = TryGenerate(new Rng(seed), seed, floorIndex, out failure, fallback);
+            GeneratedFloor? floor = TryGenerate(new Rng(seed), seed, floorIndex, -1, out failure, fallback);
             if (floor is null) continue;
 
             UsedFallback = true;
@@ -187,15 +221,32 @@ public sealed class FloorGenerator
         return f;
     }
 
-    private GeneratedFloor? TryGenerate(Rng rng, ulong seed, int floorIndex, out string failure,
-                                        FloorFlow? forced)
+    /// <summary>
+    /// Rooms this floor should end up with, or -1 for "unconstrained" — floor 5 is open
+    /// (docs/07 §2) and the fallback flow opts out. Rolled from the floor seed alone so it is
+    /// stable across retries; see the note in <see cref="Generate"/>.
+    /// </summary>
+    private static int RoomTarget(ulong floorSeed, int floorIndex) =>
+        FloorScaling.TryRoomCount(floorIndex, out int min, out int max)
+            ? new Rng(Hash.Combine(floorSeed, "rooms")).NextInt(min, max + 1)
+            : -1;
+
+    private GeneratedFloor? TryGenerate(Rng rng, ulong seed, int floorIndex, int roomTarget,
+                                        out string failure, FloorFlow? forced)
     {
         // 1. SELECT FLOW
         FloorFlow flow = (forced ?? _flows[rng.NextInt(0, _flows.Count)]).Clone();
 
         // 2. TRANSFORM — chain expansion then injection.
-        ExpandChains(flow, rng);
-        InjectSpecialRooms(flow, rng, floorIndex);
+        //
+        // The injection DECISIONS are rolled first and applied last. Expansion needs to know
+        // how many rooms injection will add in order to hit docs/07 §2's room count, and
+        // injection needs the EXPANDED flow to choose hosts from — before expansion there are
+        // barely any dead ends, so "shrines only at dead ends" would degrade into
+        // AttachToAny and put specials on the critical path.
+        Injections injections = RollInjections(rng, floorIndex, roomTarget, flow.Nodes.Count);
+        ExpandChains(flow, rng, ExpansionBudget(flow, roomTarget, injections));
+        ApplyInjections(flow, rng, injections);
 
         // 3. ASSIGN ROOMS
         var floor = new GeneratedFloor { Seed = seed, FlowId = flow.Id };
@@ -239,55 +290,214 @@ public sealed class FloorGenerator
     // ---------------------------------------------------------------- Stage 2
 
     /// <summary>
+    /// How many extra rooms expansion should add, or -1 for "no target — roll per node".
+    ///
+    /// docs/07 §2 gives each floor a room count (11–14 on the Undercroft rising to 14–18 on
+    /// the Mountains) and docs/06 §3.3 names chain expansion as the mechanism — "this is how
+    /// the same flow produces a 12-room and an 18-room floor". Expansion is therefore where
+    /// the floor index has to enter, and it did not: the result was a mean of 14.8 rooms on a
+    /// floor whose band tops out at 14. The SAME missing input left floor 1 long and floor 4
+    /// short, which is why "the floors feel samey" was never going to lead anyone here.
+    /// </summary>
+    private static int ExpansionBudget(FloorFlow flow, int roomTarget, Injections injections)
+    {
+        if (roomTarget < 0) return -1;
+
+        // Never negative. Overshoot is injection's problem to solve, not expansion's — it can
+        // only add rooms, and RollInjections has already trimmed what it is allowed to trim.
+        return Mathf.Max(0, roomTarget - flow.Nodes.Count - injections.Count);
+    }
+
+    /// <summary>
     /// docs/06 §3.3 — expandable nodes become runs of 1..N rooms of the same role. One
     /// flow therefore produces floors of different LENGTH without different authoring.
+    ///
+    /// <paramref name="budget"/> is the total extra rooms wanted across the whole flow, or -1
+    /// to roll each node independently (floor 5 is "open" in docs/07 §2 and has no band).
+    /// A budget larger than the flow's capacity is spent as far as it goes: capacity is a
+    /// property of the authored flow, and inventing rooms it has no chain to hold would fan
+    /// out into new branches, which is the one thing expansion exists not to do.
     /// </summary>
-    private static void ExpandChains(FloorFlow flow, Rng rng)
+    private static void ExpandChains(FloorFlow flow, Rng rng, int budget)
     {
-        var originals = new List<FlowNode>(flow.Nodes);
-        foreach (FlowNode node in originals)
+        // Collected before anything is spliced, so the rooms expansion ADDS cannot themselves
+        // expand. A node with no neighbours has nothing to splice between and is skipped here
+        // rather than mid-loop, so it does not silently absorb part of the budget.
+        //
+        // ACYCLIC CHAINS FIRST, and this is the whole ballgame for the fallback rate.
+        //
+        // Lengthening a chain inside a loop makes a CYCLE longer, and a long cycle has to
+        // close back on itself in 2D; lengthening an acyclic chain just grows a snake, which
+        // always fits. The measured difference is not subtle. Asked for 17–18 room floors:
+        //
+        //   undercroft_descent      both expandable nodes acyclic     0 fallbacks
+        //   undercroft_ring         one of two acyclic                4 fallbacks
+        //   undercroft_figure_eight both inside loops               124 fallbacks
+        //
+        // So spend the budget on acyclic chains first and only spill into cyclic ones when
+        // the acyclic capacity runs out. Raising MaxBacktracks was the obvious first guess and
+        // it is the wrong one — doubling it to 24000 moved the rate 1.35% -> 1.15% and cost
+        // 75% more sweep time, because the search was not short of budget, it was being asked
+        // for layouts that are genuinely hard to embed.
+        var expandable = new List<FlowNode>();
+        foreach (FlowNode node in flow.Nodes)
+            if (node.Expandable && node.Neighbours.Count > 0) expandable.Add(node);
+        if (expandable.Count == 0) return;
+
+        var onCycle = new HashSet<int>();
+        foreach (List<int> loop in FindLoops(flow)) foreach (int id in loop) onCycle.Add(id);
+        expandable.Sort((x, y) => (onCycle.Contains(x.Id) ? 1 : 0) - (onCycle.Contains(y.Id) ? 1 : 0));
+        int acyclicCount = 0;
+        foreach (FlowNode n in expandable) if (!onCycle.Contains(n.Id)) acyclicCount++;
+
+        var extras = new int[expandable.Count];
+
+        if (budget < 0)
         {
-            if (!node.Expandable) continue;
-            int extra = rng.NextInt(0, node.ExpandMax);
-            if (extra <= 0) continue;
-
-            // Splice the new rooms between this node and ONE chosen neighbour, so the
-            // chain lengthens a path rather than fanning out into new branches.
-            if (node.Neighbours.Count == 0) continue;
-            int tailNeighbour = node.Neighbours[rng.NextInt(0, node.Neighbours.Count)];
-
-            node.Neighbours.Remove(tailNeighbour);
-            flow.Nodes[tailNeighbour].Neighbours.Remove(node.Id);
-
-            int prev = node.Id;
-            for (int i = 0; i < extra; i++)
-            {
-                int mid = flow.Add(node.Role);
-                flow.Link(prev, mid);
-                prev = mid;
-            }
-            flow.Link(prev, tailNeighbour);
+            for (int i = 0; i < expandable.Count; i++)
+                extras[i] = rng.NextInt(0, expandable[i].ExpandMax);
         }
+        else
+        {
+            // Shuffled, so it is not always the first-authored chain that grows. Two passes:
+            // a random share each, then a greedy top-up. The random pass alone undershoots
+            // the target most of the time; the greedy pass alone makes every floor of a given
+            // length identical in shape.
+            //
+            // Shuffled WITHIN the acyclic and cyclic groups rather than across them, so the
+            // cheap chains keep their priority while still varying between floors.
+            var order = new int[expandable.Count];
+            for (int i = 0; i < order.Length; i++) order[i] = i;
+            rng.Shuffle(order.AsSpan(0, acyclicCount));
+            rng.Shuffle(order.AsSpan(acyclicCount));
+
+            int remaining = budget;
+
+            // A random share to each acyclic chain, so their shapes differ between floors.
+            for (int k = 0; k < acyclicCount && remaining > 0; k++)
+            {
+                int i = order[k];
+                int cap = Mathf.Min(Capacity(expandable[i]), remaining);
+                extras[i] = rng.NextInt(0, cap + 1);
+                remaining -= extras[i];
+            }
+
+            // Then fill the acyclic chains to capacity before a single room goes to a chain
+            // inside a loop. This ordering is the fix for the fallback rate; the random pass
+            // above must not be allowed to hand rooms to a cyclic chain while an acyclic one
+            // still has space.
+            for (int k = 0; k < acyclicCount && remaining > 0; k++)
+                remaining -= Give(order[k], remaining);
+
+            // Only now does the remainder spill into the loops.
+            for (int k = acyclicCount; k < order.Length && remaining > 0; k++)
+                remaining -= Give(order[k], remaining);
+
+            int Give(int i, int room)
+            {
+                int add = Mathf.Min(Capacity(expandable[i]) - extras[i], room);
+                extras[i] += add;
+                return add;
+            }
+        }
+
+        for (int i = 0; i < expandable.Count; i++)
+            if (extras[i] > 0) SpliceChain(flow, expandable[i], extras[i], rng);
+    }
+
+    /// <summary>Extra rooms a node can absorb. ExpandMax is the run LENGTH (docs/06 §3.3's
+    /// "runs of 1..N"), so the node itself is one of them.</summary>
+    private static int Capacity(FlowNode node) => Mathf.Max(0, node.ExpandMax - 1);
+
+    /// <summary>
+    /// Splice <paramref name="extra"/> rooms of the node's own role between it and ONE chosen
+    /// neighbour, so the chain lengthens a path rather than fanning out into new branches.
+    /// </summary>
+    private static void SpliceChain(FloorFlow flow, FlowNode node, int extra, Rng rng)
+    {
+        int tailNeighbour = node.Neighbours[rng.NextInt(0, node.Neighbours.Count)];
+
+        node.Neighbours.Remove(tailNeighbour);
+        flow.Nodes[tailNeighbour].Neighbours.Remove(node.Id);
+
+        int prev = node.Id;
+        for (int i = 0; i < extra; i++)
+        {
+            int mid = flow.Add(node.Role);
+            flow.Link(prev, mid);
+            prev = mid;
+        }
+        flow.Link(prev, tailNeighbour);
     }
 
     /// <summary>
     /// docs/06 §3.3 — the content-pacing valve. Every "one shop per floor", "shrines only
     /// at dead ends" rule lives here rather than scattered through the generator.
+    ///
+    /// Split into a roll and an apply so <see cref="ExpansionBudget"/> can count the rooms
+    /// before they exist. The rolls stay here; nothing else decides what a floor stocks.
     /// </summary>
-    private static void InjectSpecialRooms(FloorFlow flow, Rng rng, int floorIndex)
+    private readonly struct Injections
+    {
+        public Injections(bool shop, bool shrine, int secrets)
+        {
+            Shop = shop; Shrine = shrine; Secrets = secrets;
+        }
+
+        public bool Shop { get; }
+        public bool Shrine { get; }
+        public int Secrets { get; }
+
+        /// <summary>Rooms this will add. The reward room is unconditional.</summary>
+        public int Count => 1 + (Shop ? 1 : 0) + (Shrine ? 1 : 0) + Secrets;
+    }
+
+    /// <summary>
+    /// Roll a floor's optional stock, then trim it to fit <paramref name="roomTarget"/>.
+    ///
+    /// THE TRIM IS A DESIGN DECISION, not arithmetic. The base flows are 9–10 nodes and full
+    /// stock is 5 more rooms, so a 10-node flow with everything reaches 15 on a floor whose
+    /// band tops out at 14 — and expansion cannot fix that, because expansion only adds. One
+    /// of the two has to yield, and length wins: docs/07 §2's count is a pacing promise
+    /// (5–8 minutes on the Undercroft) while docs/06 §3.3's "1–3 secret rooms" is a range.
+    ///
+    /// Trimmed lowest content value first — the second secret, then the shrine. The reward
+    /// room and the shop are never dropped; both are guarantees other systems depend on
+    /// (docs/08 §2.1), and a floor 1 with no shop is a strictly worse failure than a floor 1
+    /// with one room too many.
+    ///
+    /// Everything is rolled before anything is trimmed, so the number of RNG draws does not
+    /// depend on the target. A generator whose draw COUNT varies with an input is one whose
+    /// later stages shift when that input changes, which makes every seed comparison useless.
+    /// </summary>
+    private static Injections RollInjections(Rng rng, int floorIndex, int roomTarget, int baseRooms)
+    {
+        bool shop = floorIndex >= 2 || rng.Chance(0.7f);   // guaranteed from floor 2 (docs/08 §2.1)
+        bool shrine = rng.Chance(0.75f);
+        int secrets = rng.NextInt(1, 3);
+
+        if (roomTarget < 0) return new Injections(shop, shrine, secrets);
+
+        int Total() => baseRooms + 1 + (shop ? 1 : 0) + (shrine ? 1 : 0) + secrets;
+
+        // docs/06 §3.3 puts the floor at 1 secret room, so that is where trimming stops.
+        while (secrets > 1 && Total() > roomTarget) secrets--;
+        if (shrine && Total() > roomTarget) shrine = false;
+
+        return new Injections(shop, shrine, secrets);
+    }
+
+    private static void ApplyInjections(FloorFlow flow, Rng rng, Injections injections)
     {
         // Reward room: guaranteed, attached to a dead end so it never sits on the path.
         AttachToDeadEnd(flow, RoomRole.Reward, rng);
 
-        // Shop: guaranteed from floor 2, ~70% on floor 1 (docs/08 §2.1).
-        if (floorIndex >= 2 || rng.Chance(0.7f)) AttachToDeadEnd(flow, RoomRole.Shop, rng);
-
-        if (rng.Chance(0.75f)) AttachToDeadEnd(flow, RoomRole.Shrine, rng);
+        if (injections.Shop) AttachToDeadEnd(flow, RoomRole.Shop, rng);
+        if (injections.Shrine) AttachToDeadEnd(flow, RoomRole.Shrine, rng);
 
         // Secrets attach to a NORMAL room via a cracked wall, so they may hang off
         // anything — including a room in the middle of a loop.
-        int secrets = rng.NextInt(1, 3);
-        for (int i = 0; i < secrets; i++) AttachToAny(flow, RoomRole.Secret, rng);
+        for (int i = 0; i < injections.Secrets; i++) AttachToAny(flow, RoomRole.Secret, rng);
     }
 
     private static void AttachToDeadEnd(FloorFlow flow, RoomRole role, Rng rng)

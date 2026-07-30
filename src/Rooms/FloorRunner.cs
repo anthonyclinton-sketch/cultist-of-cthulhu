@@ -182,6 +182,11 @@ public sealed partial class FloorRunner : Node2D
         _enemies.Initialise(_enemyBullets, _playerBullets, world, Hash.Derive(GameRoot.Instance.RunSeed, "enemies"));
         _enemies.SetWalls(walls);
 
+        // docs/05 §8 — 4 concurrent attackers on floor 1 rising to 9 on floor 6. Set HERE
+        // rather than left at the manager's default, which is how it came to be 4 on every
+        // floor of the descent: the default was correct for floor 1, so nothing looked wrong.
+        _enemies.AttackTokens = FloorScaling.AttackTokens(_run.FloorIndex);
+
         _director = new EncounterDirector(_roster, _enemies, _geometry,
                                           Hash.Derive(_run.FloorSeed, "encounters"));
     }
@@ -300,6 +305,10 @@ public sealed partial class FloorRunner : Node2D
 
         EnterRoom(entrance.NodeId);
 
+        // The scaling is printed because all three of its parts were specified, believed
+        // present and absent for a milestone. A number that never appears anywhere is a
+        // number nobody can notice is wrong.
+        GD.Print($"[FloorRunner] {FloorScaling.Describe(_run.FloorIndex)}");
         GD.Print($"[FloorRunner] floor {_run.FloorIndex}/{_run.FinalFloor} — " +
                  $"{_floor.Rooms.Count} rooms, flow '{_floor.FlowId}', " +
                  $"{_geometry.PunchedDoors} flush doors + {_geometry.Corridors} corridors, " +
@@ -412,10 +421,13 @@ public sealed partial class FloorRunner : Node2D
             return;
         }
 
-        // Snapshot what SHOULD survive the stair, so the autorun can assert it did.
+        // Snapshot what SHOULD survive the stair, so the autorun can assert it did. The spend
+        // counter resets with it: only purchases made AFTER this stair can explain gold that
+        // is missing after it.
         _carriedGold = _run.Gold;
         _carriedCells = _run.Circle.UsedCells;
         _carriedAscensions = _run.AscensionCount;
+        _autorunGoldSpent = 0;
 
         _run.AdvanceFloor();
         GD.Print($"[FloorRunner] the stair goes down. Floor {_run.FloorIndex}. " +
@@ -510,8 +522,15 @@ public sealed partial class FloorRunner : Node2D
         // player silently loses their run, and nothing else in the project would notice.
         if (_run.FinalFloor > 1)
         {
-            Check(_carriedGold >= 0 && _run.Gold >= _carriedGold,
-                  $"gold carried down the stair ({_carriedGold} -> {_run.Gold})");
+            // "Gold never went DOWN" is not the claim this gate wants to make, and it broke the
+            // moment the seed→floor mapping moved: the harness bought a 3-gold item after the
+            // last stair and the descent was blamed for it. What resetting a RunState looks
+            // like is gold going back to its STARTING value with a floor's earnings erased —
+            // so the assertion is conservation, not monotonicity, and the harness's own
+            // spending is subtracted because it is the only thing here allowed to spend.
+            Check(_carriedGold >= 0 && _run.Gold + _autorunGoldSpent >= _carriedGold,
+                  $"gold carried down the stair ({_carriedGold} -> {_run.Gold}, " +
+                  $"{_autorunGoldSpent} spent in shops)");
             Check(_run.Circle.UsedCells >= _carriedCells,
                   $"the Circle carried down the stair ({_carriedCells} -> {_run.Circle.UsedCells} cells)");
             Check(_run.AscensionCount >= _carriedAscensions,
@@ -541,6 +560,10 @@ public sealed partial class FloorRunner : Node2D
     private int _carriedGold = -1;
     private int _carriedCells;
     private int _carriedAscensions;
+
+    /// <summary>Gold the autorun harness has spent since the last stair. Not a game concept —
+    /// it exists so the carry assertion can tell a purchase from a lost run.</summary>
+    private int _autorunGoldSpent;
 
     /// <summary>
     /// Check the restore the moment it happens, rather than only at the end of the run.
@@ -647,6 +670,22 @@ public sealed partial class FloorRunner : Node2D
         _enemies.PlayerAscended = _player.Ascension.IsAscended;
         _enemies.HallucinationRatio = _player.Sanity.HallucinationRatio;
         _player.Sanity.InCombat = _encounterActive && _enemies.AliveCount > 0;
+
+        // docs/02 §2 — half a heart on floors 1–2, a full heart on floors 3+, and a full
+        // heart from a boss's phase 2 on any floor.
+        //
+        // Pushed every tick, and the boss term is read from the LIVE phase rather than
+        // latched at the phase change, because the boss ticks after this scene does: a value
+        // captured at the transition is a tick stale, and this one is the difference between
+        // half a heart and a dead run.
+        //
+        // The boss term raises damage room-wide, including the phase-2 adds. Enemy bullets
+        // carry no source attribution — the alternative is a damage field on the bullet
+        // struct, and widening the array the M0 performance gate measures is not something to
+        // do for one rule. In a boss room the boss sets the difficulty anyway.
+        _player.IncomingDamageMultiplier = _boss is { Alive: true } boss
+            ? FloorScaling.BossDamageMultiplier(_run.FloorIndex, boss.Phase)
+            : FloorScaling.DamageMultiplier(_run.FloorIndex);
 
         TickBoss(dt);
         if (_encounterActive) _director.Tick(dt, _player.GlobalPosition);
@@ -1657,7 +1696,17 @@ public sealed partial class FloorRunner : Node2D
         // every run with an empty Circle, and "the Circle carried down the stair" is an
         // assertion about one locked Heart — which is exactly the kind of test that passes
         // whatever happens.
-        if (_content.DebugTakeSomething())
+        // Gold the harness SPENDS is not gold the descent lost. Measured around the purchase
+        // rather than inferred, so the carry assertion below can subtract it exactly.
+        //
+        // _player.Gold, NOT _run.Gold: the player owns the live value and RunState only
+        // receives it at a SaveTo, so reading _run here compares two identical stale numbers
+        // and reports that nothing was ever spent. Which is exactly what it reported.
+        int goldBefore = _player.Gold;
+        bool took = _content.DebugTakeSomething();
+        if (_player.Gold < goldBefore) _autorunGoldSpent += goldBefore - _player.Gold;
+
+        if (took)
         {
             while (_player.Circle.Reliquary.Count > 0)
                 if (!_player.Circle.AutoPlace(_player.Circle.Reliquary[0])) break;

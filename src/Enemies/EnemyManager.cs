@@ -26,8 +26,10 @@ public sealed partial class EnemyManager : Node2D
     private int _nextId = 1;
     private float _repathTimer;
 
-    /// <summary>Concurrent attackers allowed. Scales by floor: 4 on Floor 1, 9 on Floor 6.</summary>
-    public int AttackTokens { get; set; } = 4;
+    /// <summary>Concurrent attackers allowed. Set per floor by the owning scene from
+    /// <see cref="FloorScaling.AttackTokens"/> — the default is floor 1's value, and that is
+    /// exactly why the missing assignment in FloorRunner went unnoticed for a milestone.</summary>
+    public int AttackTokens { get; set; } = Tune.AttackTokensFirstFloor;
 
     public Vector2 PlayerPosition;
     public Vector2 PlayerVelocity;

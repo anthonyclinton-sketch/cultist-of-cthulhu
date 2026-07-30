@@ -25,6 +25,26 @@ public sealed partial class GenerationTest : Node
 {
     private const int Seeds = 10000;
 
+    /// <summary>Room counts seen for one floor index. A struct in a flat array so the sweep
+    /// stays allocation-free — it runs 10,000 times per commit.</summary>
+    private struct BandTally
+    {
+        public int Count;
+        public int Min;
+        public int Max;
+        private long _total;
+
+        public void Add(int rooms)
+        {
+            if (Count == 0) { Min = rooms; Max = rooms; }
+            else { if (rooms < Min) Min = rooms; if (rooms > Max) Max = rooms; }
+            Count++;
+            _total += rooms;
+        }
+
+        public float Mean => Count == 0 ? 0f : _total / (float)Count;
+    }
+
     public override void _Ready()
     {
         var flows = UndercroftContent.Flows();
@@ -137,10 +157,20 @@ public sealed partial class GenerationTest : Node
         int retried = 0;
         int fallbacks = 0;
 
+        // Every floor, not just floor 1. The sweep swept floorIndex: 1 for a milestone while
+        // the generator ignored the floor index entirely, so it was measuring the only case
+        // that could not reveal that — see the band check below.
+        var band = new BandTally[FloorScaling.DeepestFloor + 1];
+        var fallbackByFloor = new int[FloorScaling.DeepestFloor + 1];
+        var fallbackCauses = new Dictionary<string, int>();
+        var seedsByFloor = new int[FloorScaling.DeepestFloor + 1];
+
         for (int i = 0; i < Seeds; i++)
         {
             ulong seed = Hash.Combine(0xC0FFEEUL, i);
-            GeneratedFloor? floor = gen.Generate(seed, floorIndex: 1, out string failure);
+            int floorIndex = 1 + i % FloorScaling.DeepestFloor;
+            seedsByFloor[floorIndex]++;
+            GeneratedFloor? floor = gen.Generate(seed, floorIndex, out string failure);
 
             if (floor is null)
             {
@@ -152,13 +182,32 @@ public sealed partial class GenerationTest : Node
             }
 
             ok++;
-            if (gen.UsedFallback) fallbacks++;
+            if (gen.UsedFallback)
+            {
+                fallbacks++;
+                fallbackByFloor[floorIndex]++;
+
+                // WHY the authored flow gave up. Generate leaves its last failure in `failure`
+                // even when the fallback then succeeds, and nothing was reading it — so a
+                // rising fallback rate was a number with no attached cause, which is the one
+                // thing a gate should never report.
+                string why = $"{gen.LastAuthoredFlowId,-28} target {gen.LastRoomTarget,2}   " +
+                             Shorten(gen.LastAuthoredFailure);
+                fallbackCauses[why] = fallbackCauses.GetValueOrDefault(why) + 1;
+            }
             totalRooms += floor.Rooms.Count;
             totalAttempts += floor.Attempts;
             if (floor.Attempts > 1) retried++;
             minRooms = Mathf.Min(minRooms, floor.Rooms.Count);
             maxRooms = Mathf.Max(maxRooms, floor.Rooms.Count);
             flowUse[floor.FlowId] = flowUse.GetValueOrDefault(floor.FlowId) + 1;
+
+            // The fallback flow is excluded on purpose. It is authored to be trivially
+            // placeable rather than well paced (docs/06 §5.5) and has no expandable chain, so
+            // it cannot reach any band — holding it to one would force it to stop being
+            // minimal, which is the property the whole retry escape hatch rests on. Its count
+            // is reported separately so this exemption stays visible.
+            if (!gen.UsedFallback) band[floorIndex].Add(floor.Rooms.Count);
         }
 
         GD.Print($" seeds            {Seeds}");
@@ -170,6 +219,35 @@ public sealed partial class GenerationTest : Node
 
         GD.Print(" flow usage:");
         foreach ((string id, int n) in flowUse) GD.Print($"   {id,-28} {n * 100.0 / Mathf.Max(1, ok),5:F1}%");
+
+        // docs/07 §2's room count, floor by floor. Printed as well as asserted: a floor that
+        // sits on its band's edge every time is passing while producing one length, and only
+        // the mean shows that.
+        GD.Print(" rooms by floor (docs/07 §2):");
+        int bandFailures = 0;
+        for (int f = 1; f <= FloorScaling.DeepestFloor; f++)
+        {
+            ref BandTally t = ref band[f];
+            if (t.Count == 0) { GD.Print($"   floor {f}   (no samples)"); continue; }
+
+            if (!FloorScaling.TryRoomCount(f, out int lo, out int hi))
+            {
+                GD.Print($"   floor {f}   {t.Min}..{t.Max}  mean {t.Mean:F1}   open — no band");
+                continue;
+            }
+
+            bool inBand = t.Min >= lo && t.Max <= hi;
+            if (!inBand) bandFailures++;
+            GD.Print($"   floor {f}   {t.Min}..{t.Max}  mean {t.Mean:F1}   " +
+                     $"want {lo}..{hi}   {(inBand ? "ok" : "OUT OF BAND")}   " +
+                     $"fallback {fallbackByFloor[f] * 100.0 / Mathf.Max(1, seedsByFloor[f]):F2}%");
+        }
+
+        if (fallbackCauses.Count > 0)
+        {
+            GD.Print(" why the authored flow fell back:");
+            foreach ((string reason, int n) in fallbackCauses) GD.Print($"   {n,6}x  {reason}");
+        }
 
         if (failures.Count > 0)
         {
@@ -194,13 +272,34 @@ public sealed partial class GenerationTest : Node
         // plain floor, so leaning on it is a content problem. A rising rate means an
         // authored flow or a room set has drifted into being hard to place.
         bool fallbackRare = fallbackRate <= 0.01f;
+        bool bandsHeld = bandFailures == 0;
+
+        // THE CONTROL FOR THE BAND CHECK (working agreement: add the control with the
+        // assertion). Every band overlaps its neighbour — floor 1 is 11–14 and floor 4 is
+        // 14–18 — so a generator that ignored the floor index entirely could sit at 14 rooms
+        // forever and pass every band. That is not a hypothetical: it is exactly what the
+        // generator did until this commit, and the band check alone would have blessed it.
+        //
+        // So assert that the distributions actually MOVED: the mean rises from floor 1 to
+        // floor 4, and by enough that it cannot be noise. The Corruption gate's "severity
+        // never falls" is the same shape of check for the same reason.
+        float firstMean = band[1].Mean, deepMean = band[4].Mean;
+        bool curveRises = true;
+        for (int f = 1; f < 4; f++)
+            if (band[f].Count > 0 && band[f + 1].Count > 0 && band[f + 1].Mean < band[f].Mean)
+                curveRises = false;
+        bool curveMoved = curveRises && deepMean - firstMean >= 2f;
 
         GD.Print($" [{(allGenerated ? "PASS" : "FAIL")}] every seed produced a floor");
         GD.Print($" [{(variety ? "PASS" : "FAIL")}] room count varies ({minRooms}..{maxRooms}, need spread >= 3)");
         GD.Print($" [{(flowsUsed ? "PASS" : "FAIL")}] every authored flow is reachable ({authoredUsed}/{flows.Count})");
         GD.Print($" [{(fallbackRare ? "PASS" : "FAIL")}] fallback rate {fallbackRate * 100:F2}% (need <= 1%)");
+        GD.Print($" [{(bandsHeld ? "PASS" : "FAIL")}] every floor inside its docs/07 §2 band " +
+                 $"({bandFailures} floor(s) out)");
+        GD.Print($" [{(curveMoved ? "PASS" : "FAIL")}] the count follows the floor — mean " +
+                 $"{firstMean:F1} on floor 1 to {deepMean:F1} on floor 4 (need +2.0, monotone)");
 
-        bool pass = allGenerated && variety && flowsUsed && fallbackRare;
+        bool pass = allGenerated && variety && flowsUsed && fallbackRare && bandsHeld && curveMoved;
         GD.Print("================================================================");
         GD.Print(pass ? " GENERATION SWEEP: PASS" : " GENERATION SWEEP: FAIL");
         GD.Print("================================================================");

@@ -2,7 +2,7 @@
 
 **Repo:** `github.com/anthonyclinton-sketch/cultist-of-cthulhu` (private) · branch `main`
 **Local:** `C:\Users\antho\Cultist Of Cthulu`
-**As of:** commit `832f35f`, 40 commits · 66 C# files / ~16,100 lines · 65 `.tres` · 16 debug scenes
+**As of:** commit `df49124` + the floor-scaling commit, 42 commits · 67 C# files · 65 `.tres` · 16 debug scenes
 
 ---
 
@@ -109,6 +109,12 @@ can seal a room or block a door.
   a fourth bench offer, +1 enemy at 7+, the Yellow Sign at 10.
 - **Encounters** (docs/06 §6): the full Dread Budget formula including the Corruption and
   player-power terms, and **waves** — 2–3 per big room, triggered on kills, never a timer.
+- **Floor scaling** (docs/05 §8, docs/02 §2, docs/07 §2): `Core/FloorScaling.cs` owns the
+  per-floor table the way `CorruptionTiers` owns the Corruption thresholds. Attack tokens 4→9
+  across floors 1–6, incoming damage ×1 on floors 1–2 and ×2 on floors 3+ (and ×2 from a
+  boss's phase 2 on any floor), room counts inside docs/07 §2's bands. Printed at the top of
+  every floor — all three of these were specified, believed present and absent for a
+  milestone precisely because no number ever surfaced anywhere.
 
 ---
 
@@ -128,7 +134,7 @@ All in `tools/gates.ps1` and `.github/workflows/gates.yml`. **All currently gree
 | **Corruption** | Severity never falls as Corruption rises |
 | **Boss 1** | Every phase reached and firing; the grab connects and is rate-limited |
 | **Wall collision** | Nothing occupies solid ground; sealed rooms hold; enemies move |
-| Floor generation | 10k seeds, every invariant, fallback ≤1% |
+| Floor generation | 10k seeds **across all six floors**, every invariant, fallback ≤1%, every floor inside its docs/07 §2 room band, and the count demonstrably *follows* the floor |
 | Playable floor smoke | Boots and runs on several seeds |
 | Engine warning budget | Zero — a per-frame warning reads as a freeze |
 | Bullet performance | 4096 bullets, sim p99 ≤0.4ms, zero alloc |
@@ -157,25 +163,47 @@ below its first threshold. About thirty minutes of play beat fourteen gates.
 by running the doors open first. Without that it would have reported success while measuring
 motionless enemies.
 
+The room-band check has one for the same reason: **every band in docs/07 §2 overlaps its
+neighbour** — floor 1 is 11–14 and floor 4 is 14–18 — so a generator ignoring the floor index
+could sit at 14 rooms forever and pass all six bands. It did ignore the floor index, for a
+milestone. The paired check asserts the mean actually *moves* from floor 1 to floor 4.
+
+**A third one, added since:** the sweep swept `floorIndex: 1` only, while the generator ignored
+the floor index entirely. It was measuring the single case that could not reveal the bug. If a
+system takes a parameter, the gate has to vary it.
+
 ---
 
 ## 5. What to build next
 
-### 5.1 Fix the floor-scaling phantoms — small, do these first
+### 5.1 The floor-scaling residue — two decisions, no code
 
-Three things are specified, believed present, and absent. All three only bite once floors
-2–6 exist, which is exactly why they will be missed.
+The three phantoms are fixed (§3). What is left is judgement, not work:
 
-1. **Attack tokens never scale.** `EnemyManager.AttackTokens = 4`, `CombatArena` sets it to
-   4 explicitly, and **`FloorRunner` never sets it at all** — so it is 4 on every floor
-   forever. docs/05 §8 says 4 on floor 1 rising to 9 on floor 6 and calls it *"the single
-   most important knob for making a room fair"*. It is also how R7's 600-bullet ceiling is
-   meant to be honoured by design rather than clamped at runtime.
-2. **Damage does not scale by floor.** `PlayerController.TakeHit(0.5f)` is hardcoded.
-   docs/02 §2: half a heart on floors 1–2, **a full heart on floors 3+**, bosses a full
-   heart from phase 2. That is a straight doubling of lethality the pacing assumes.
-3. **Room counts do not vary by floor.** The generator produces 8–19 from flow expansion,
-   unrelated to floor index. docs/07 §2 wants 11–14 rising to 14–18.
+1. **`RollInjections` now trims a floor's optional stock to fit its room band**, dropping the
+   second secret room and then the shrine, never the reward room or the shop. It has to,
+   because the base flows are 9–10 nodes and full stock is 5 more rooms, so a 10-node flow
+   with everything reaches 15 on a floor whose band tops out at 14 — and expansion can only
+   add. This makes docs/07 §2's length a harder promise than docs/06 §3.3's "1–3 secret
+   rooms". Reasonable, and still a design call taken to satisfy arithmetic. The alternative
+   was trimming `undercroft_figure_eight` from 10 base nodes to 9.
+2. **Floor 5 has no band and is generated unconstrained**, so it now runs 12–21 rooms.
+   docs/07 §2 says "open" and means a different generator (the Plateau of Leng, docs/06 §8).
+   `FloorScaling.TryRoomCount` returns false for it deliberately rather than inventing a
+   range, so the gate reports it and asserts nothing. Correct for now; it will need the real
+   answer when floor 5 is built.
+
+**One thing worth reading before touching the generator again.** Expansion now spends its
+budget on **acyclic chains before chains inside loops**, and that single ordering is worth
+more than any amount of search budget. Lengthening a chain in a loop makes a cycle that has
+to close in 2D; lengthening an acyclic chain grows a snake, which always fits. Asked for the
+17–18 room floors floors 3–4 want, per 10,000 seeds: `undercroft_descent` (both expandable
+nodes acyclic) fell back 0 times, `undercroft_ring` (one of two) 4 times,
+`undercroft_figure_eight` (both inside loops) **124 times**. Raising `MaxBacktracks` was the
+obvious first guess and it is the wrong one — doubling it to 24000 moved the fallback rate
+1.35% → 1.15% and cost 75% more sweep time. Ordering the spend, plus giving the figure eight
+an expandable acyclic approach, took it to **0.09%** and made the sweep *faster* (98s against
+135s) because far fewer attempts are wasted.
 
 ### 5.2 Rebalance the difficulty curve — *with* floor 2, not before
 
@@ -196,6 +224,13 @@ player's real power over six floors grows far more than that, so late floors may
 The levers are `DreadBudget`'s `baseline` terms. **Do this alongside floor 2** — it is
 tuning against a felt experience, and tuning a curve nobody can play is guesswork. The gate
 prints before/after directly.
+
+**Two of the numbers above have moved since this was written, in the same direction.** Attack
+tokens now rise 4→9, which raises real pressure per room without touching the budget; and
+room counts now follow the floor, so the "tenth room" comparison is no longer like-for-like —
+floor 1 reaches ~13 rooms and floor 4 ~16, meaning the within-floor ramp runs *longer* on
+deep floors and the gap is a little wider than 24%. Neither closes it. Re-read the gate's
+printed curve before tuning anything; do not tune against the block above.
 
 ### 5.3 Floor 2 — The Drowned Wharfs, and Mother Hydra's Brood
 
@@ -281,8 +316,16 @@ visual only, and R8's per-shot sounds do not exist.
 7. **When a gate breaks after a content change, the content usually drifted** — but check
    whether the *assertion* encoded a coincidence. `BanishTest` asserted "cost ≥ ceiling
    floor" because both happened to be 45; the wall gate asserted "the room centre is
-   walkable" until a room was authored with a table through the middle of it.
+   walkable" until a room was authored with a table through the middle of it. Third case:
+   the 3-floor autorun asserted gold **never decreases** across a stair, which held only
+   because the harness's shop purchases had never once exceeded its post-stair earnings. The
+   gate's stated purpose is catching a *reset*, so it now asserts conservation — gold plus
+   what the harness spent — and prints the spend.
 8. **Commit messages carry the reasoning**, including wrong turns and corrected estimates.
+9. **`_run` is a save file, not live state.** `RunState` receives the player's gold, hearts
+   and Circle at a `SaveTo`, so reading `_run.Gold` mid-floor gets you the value from the last
+   floor boundary. The first version of that autorun fix instrumented `_run.Gold` around a
+   purchase and confidently reported "0 spent" — two reads of the same stale number.
 
 ---
 

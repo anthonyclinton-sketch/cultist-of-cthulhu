@@ -257,6 +257,31 @@ public static class Tune
     /// fodder that stops dying fast starves the Sanity economy (docs/05 §2).</summary>
     public const float AwakenedHealthMultiplier = 1.15f;
 
+    // ----------------------------------------------------- Floor scaling (docs/05 §8, 02 §2)
+    //
+    // The anchors, not the effects. Read only through Core.FloorScaling, which owns the
+    // interpolation and the per-floor room-count table for the same reason CorruptionTiers
+    // owns the Corruption thresholds: a scaling table split across files is a table that
+    // disagrees with itself the first time one half is tuned.
+
+    /// <summary>Concurrent attackers on floor 1 and floor 6 — docs/05 §8 calls this "the
+    /// single most important knob for making a room fair", and it is how docs/05 R7's
+    /// 600-bullet ceiling is honoured by design rather than clamped at runtime.</summary>
+    public const int AttackTokensFirstFloor = 4;
+    public const int AttackTokensFinalFloor = 9;
+
+    /// <summary>One bullet costs this many hearts before floor scaling (docs/02 §2). Contact
+    /// damage is authored per enemy instead; a bullet has no author, so it needs a base.</summary>
+    public const float BulletHitDamage = 0.5f;
+
+    /// <summary>One hit is half a heart until this floor, then a full one (docs/02 §2). The
+    /// multiplier is exactly 2 so that half-heart granularity survives — see the note on
+    /// PlayerController.ApplyIncomingDamageBonus for why fractional damage cannot.</summary>
+    public const int FloorFullHeartDamage = 3;
+
+    /// <summary>docs/02 §2 — a boss hits for a full heart from phase 2, on every floor.</summary>
+    public const int BossFullHeartPhase = 2;
+
     // ---------------------------------------------------------------- Bullets (docs/09 §3)
 
     public const int MaxBullets = 4096;                  // hard array capacity

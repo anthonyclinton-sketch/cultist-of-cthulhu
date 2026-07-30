@@ -132,7 +132,7 @@ public sealed partial class CombatArena : Node2D
         _enemies = new EnemyManager { Name = nameof(EnemyManager) };
         AddChild(_enemies);
         _enemies.Initialise(_enemyBullets, _playerBullets, bounds, Hash.Derive(GameRoot.Instance.RunSeed, "enemies"));
-        _enemies.AttackTokens = 4;   // Floor 1 (docs/05 §8)
+        _enemies.AttackTokens = FloorScaling.AttackTokens(1);   // the arena is a floor-1 slice
     }
 
     private void BuildPlayer()

@@ -47,10 +47,17 @@ public static class UndercroftContent
         }
 
         // 2 — "The Figure Eight". Two loops sharing the hub; more route choice.
+        //
+        // `a` is expandable and that is load-bearing, not decoration. Both of the loop chains
+        // are inside cycles, so before this the flow's ONLY way to grow was to lengthen two
+        // cycles that share a hub and both have to close in 2D. Asked for the 17–18 room
+        // floors docs/07 §2 wants on floors 3–4, it fell back on 124 seeds out of 10,000
+        // against 4 for the ring and 0 for the descent. The approach corridor is acyclic, so
+        // growing it is free, and a one-room approach was thin anyway.
         {
             var f = new FloorFlow("undercroft_figure_eight");
             int entrance = f.Add(RoomRole.Entrance);
-            int a = f.Add(RoomRole.CombatEasy);
+            int a = f.Add(RoomRole.CombatEasy, expandable: true, expandMax: 4);
             int hub = f.Add(RoomRole.Hub);
             int l1 = f.Add(RoomRole.CombatEasy, expandable: true);
             int l2 = f.Add(RoomRole.Connector);

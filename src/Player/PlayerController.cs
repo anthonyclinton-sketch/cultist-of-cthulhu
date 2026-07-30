@@ -108,6 +108,18 @@ public sealed partial class PlayerController : CharacterBody2D
     /// <summary>Remaining post-damage invulnerability, for the 12Hz flash (docs/02 §2).</summary>
     public float DamageIFramesRemaining => _damageIFrames;
 
+    /// <summary>
+    /// What one incoming hit is multiplied by — ×1 on floors 1–2, ×2 on floors 3+, and ×2
+    /// against a boss from phase 2 on any floor (docs/02 §2). Pushed down each tick by the
+    /// owning scene, like <see cref="Enemies.EnemyManager.ExecuteDamageBonus"/>.
+    ///
+    /// A bare float rather than a floor index, because the player has no business knowing
+    /// where it is; and pushed per tick rather than per floor because the boss half of the
+    /// rule changes phase mid-room. Defaults to floor 1 so a scene that forgets to set it is
+    /// merely un-scaled rather than lethal.
+    /// </summary>
+    public float IncomingDamageMultiplier { get; set; } = 1f;
+
     // ================================================================ Sigils
     //
     // Everything below is the seam between docs/04 and the rest of the player. The rule
@@ -939,7 +951,7 @@ public sealed partial class PlayerController : CharacterBody2D
     {
         if (EnemyBullets is null || EnemyBullets.HitsThisTick <= 0) return;
         if (IsInvulnerable) return;
-        TakeHit(0.5f);
+        TakeHit(Tune.BulletHitDamage * IncomingDamageMultiplier);
     }
 
     private void ConsumeContactDamage()
@@ -948,7 +960,7 @@ public sealed partial class PlayerController : CharacterBody2D
         float dmg = Enemies.QueryContactDamage(GlobalPosition, Tune.PlayerHitboxRadius);
         if (dmg <= 0f) return;
         _contactDamageCooldown = 0.6f;
-        TakeHit(dmg);
+        TakeHit(dmg * IncomingDamageMultiplier);
     }
 
     private void TakeHit(float hearts)
