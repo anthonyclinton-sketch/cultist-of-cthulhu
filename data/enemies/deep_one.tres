@@ -1,0 +1,27 @@
+[gd_resource type="Resource" script_class="EnemyData" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://src/Enemies/EnemyData.cs" id="1"]
+
+[ext_resource type="Resource" path="res://data/patterns/deep_one_claw.tres" id="2"]
+
+[resource]
+script = ExtResource("1")
+DisplayName = "Deep One"
+Role = 2
+CodexText = "It does not drown and it does not tire, and it has been waiting in four feet of water for longer than the pier above it has stood. On land it is clumsy. Do not mistake that for slow."
+Tint = Color(0.35, 0.63, 0.6, 1)
+BodyRadius = 11.0
+MinFloor = 2
+MaxHealth = 40.0
+MoveSpeed = 96.0
+ContactDamage = 0.5
+SwimsInWater = true
+DreadCost = 16.0
+SanityValue = 9.0
+PreferredRange = 0.0
+AggroRange = 2400.0
+AttackCooldown = 1.5
+AttackCooldownVariance = 0.3
+RecoverySeconds = 0.4
+LungeMultiplier = 1.7
+AwakenedAttack = ExtResource("2")

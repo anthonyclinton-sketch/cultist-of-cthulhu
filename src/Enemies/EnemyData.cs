@@ -27,6 +27,24 @@ public partial class EnemyData : Resource
     [Export] public Color Tint { get; set; } = new("B0B8C4");
     [Export] public float BodyRadius { get; set; } = 10f;
 
+    /// <summary>
+    /// Floors this enemy may appear on, inclusive. Mirrors <see cref="Generation.RoomTemplate.MinFloor"/>,
+    /// which has had the same field since M2 — the roster simply never grew a reason to need it.
+    ///
+    /// It needs one now. A Deep One's entire identity is that it swims, and the Undercroft has
+    /// no water; dropped into floor 1 it is a Cellar Ghoul with a worse silhouette. Before this
+    /// the roster was a flat list of five paths, so a floor-2 enemy could only be added by
+    /// adding it everywhere.
+    ///
+    /// MaxFloor defaults past the deepest floor rather than to it, so an enemy authored without
+    /// an opinion appears everywhere from MinFloor down — which is what every existing enemy
+    /// wants, and keeps this change a no-op for all five of them.
+    /// </summary>
+    [Export] public int MinFloor { get; set; } = 1;
+    [Export] public int MaxFloor { get; set; } = 99;
+
+    public bool AppearsOnFloor(int floor) => floor >= MinFloor && floor <= MaxFloor;
+
     [ExportGroup("Stats")]
     [Export] public float MaxHealth { get; set; } = 30f;
     [Export] public float MoveSpeed { get; set; } = 42f;

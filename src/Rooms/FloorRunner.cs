@@ -92,20 +92,6 @@ public sealed partial class FloorRunner : Node2D
 
     private void LoadContent()
     {
-        foreach (string path in new[]
-                 {
-                     "res://data/enemies/acolyte.tres",
-                     "res://data/enemies/cellar_ghoul.tres",
-                     "res://data/enemies/tallow_man.tres",
-                     "res://data/enemies/netcaster.tres",
-                     "res://data/enemies/chanter.tres",
-                 })
-        {
-            var data = GD.Load<EnemyData>(path);
-            if (data is not null) _roster.Add(data);
-            else GD.PrintErr($"[FloorRunner] failed to load {path}");
-        }
-
         _bossData = GD.Load<BossData>("res://data/bosses/thing_on_the_doorstep.tres");
         if (_bossData is null) GD.PrintErr("[FloorRunner] failed to load the boss.");
     }
@@ -257,6 +243,11 @@ public sealed partial class FloorRunner : Node2D
         // floor of the descent: the default was correct for floor 1, so nothing looked wrong.
         _enemies.AttackTokens = FloorScaling.AttackTokens(_run.FloorIndex);
 
+        // The roster is per FLOOR, not per run. Repopulated in place rather than replaced so
+        // the boss-adds path and the director keep pointing at the same list.
+        _roster.Clear();
+        _roster.AddRange(Bestiary.ForFloor(_run.FloorIndex));
+
         _director = new EncounterDirector(_roster, _enemies, _geometry,
                                           Hash.Derive(_run.FloorSeed, "encounters"));
     }
@@ -388,6 +379,14 @@ public sealed partial class FloorRunner : Node2D
                  (_tideField.AnyWater
                      ? $" · tide over {_tideField.WaterTiles} tiles, {Tune.TidePeriod:0}s cycle"
                      : " · no water"));
+
+        // The roster, by name. A floor-gated bestiary fails silently in the direction of
+        // "the wrong monsters, fought competently" — a Deep One on the Undercroft spawns,
+        // paths, claws and dies like anything else. Printing the names is the only cheap way
+        // to notice.
+        var names = new List<string>(_roster.Count);
+        foreach (EnemyData d in _roster) names.Add(d.SwimsInWater ? $"{d.DisplayName}~" : d.DisplayName);
+        GD.Print($"[FloorRunner] roster: {string.Join(", ", names)}   (~ swims)");
         GD.Print($"[FloorRunner] floor {_run.FloorIndex}/{_run.FinalFloor} — " +
                  $"{_floor.Rooms.Count} rooms, flow '{_floor.FlowId}', " +
                  $"{_geometry.PunchedDoors} flush doors + {_geometry.Corridors} corridors, " +

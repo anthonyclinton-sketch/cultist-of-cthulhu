@@ -69,18 +69,12 @@ public sealed partial class CombatArena : Node2D
         // Loaded from .tres, not constructed in code — docs/09 §5. A missing or invalid
         // resource is a hard failure here rather than a silent fallback, because a
         // playtest run on half-loaded content produces data that looks real and is not.
-        foreach (string path in new[]
-                 {
-                     "res://data/enemies/acolyte.tres",
-                     "res://data/enemies/cellar_ghoul.tres",
-                     "res://data/enemies/tallow_man.tres",
-                     "res://data/enemies/netcaster.tres",
-                     "res://data/enemies/chanter.tres",
-                 })
+        //
+        // Floor 1's roster, from the one list that knows which enemies belong where. This
+        // used to be its own copy of the paths, which is how a roster acquires an enemy the
+        // other scene has never heard of.
+        foreach (EnemyData data in Bestiary.ForFloor(1))
         {
-            var data = GD.Load<EnemyData>(path);
-            if (data is null) { GD.PrintErr($"[CombatArena] failed to load {path}"); continue; }
-
             string? err = data.Validate();
             if (err is not null) GD.PrintErr($"[CombatArena] {data.DisplayName}: {err}");
 

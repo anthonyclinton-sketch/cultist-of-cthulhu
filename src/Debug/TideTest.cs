@@ -46,6 +46,7 @@ public sealed partial class TideTest : Node2D
         TestDryFloorCostsNothing();
         TestWadersAreSlowedAndSwimmersAreNot();
         TestDrenchedLingers();
+        TestSwimmersAreOnlyOnWetFloors();
 
         GD.Print("================================================================");
         GD.Print(_failures == 0 ? " THE TIDE: PASS" : $" THE TIDE: FAIL ({_failures})");
@@ -309,5 +310,50 @@ public sealed partial class TideTest : Node2D
     private static void StepDrenched(Player.PlayerController player, float seconds)
     {
         for (int t = 0; t < Mathf.CeilToInt(seconds / Dt); t++) player.TickDrenched(Dt);
+    }
+
+    // ---------------------------------------------------------------- The roster
+
+    /// <summary>
+    /// A swimmer must not appear on a floor with no water.
+    ///
+    /// This is the failure the whole floor-gating change exists to prevent, and it is
+    /// invisible from every other angle: a Deep One dropped into the Undercroft spawns, paths,
+    /// claws and dies exactly like a Cellar Ghoul with a worse silhouette. Nothing errors, the
+    /// encounter budget balances, the autorun wins the run. It is simply the wrong monster,
+    /// and the only thing that would ever have caught it is somebody noticing.
+    ///
+    /// Asserted both ways, because "floor 1 has no swimmers" is also satisfied by a bestiary
+    /// that has no swimmers at all — which is what the game shipped with until this commit.
+    /// </summary>
+    private void TestSwimmersAreOnlyOnWetFloors()
+    {
+        var floor1 = Bestiary.ForFloor(1);
+        var floor2 = Bestiary.ForFloor(2);
+
+        int swimmersOn1 = 0;
+        foreach (EnemyData d in floor1) if (d.SwimsInWater) swimmersOn1++;
+        int swimmersOn2 = 0;
+        foreach (EnemyData d in floor2) if (d.SwimsInWater) swimmersOn2++;
+
+        Check(floor1.Count > 0, $"floor 1 has a roster ({floor1.Count} enemies)");
+        Check(swimmersOn1 == 0, $"no swimmer is on the waterless Undercroft ({swimmersOn1} found)");
+
+        // The control. Without it the check above passes on a game with no swimmers at all.
+        Check(swimmersOn2 > 0,
+              $"control: the Wharfs do have swimmers ({swimmersOn2} of {floor2.Count})");
+        Check(floor2.Count > floor1.Count,
+              $"and floor 2 adds to the roster rather than replacing it " +
+              $"({floor1.Count} -> {floor2.Count})");
+
+        // Every floor must be able to fill a room, or the encounter director reports a
+        // satisfied budget for an empty one.
+        for (int f = 1; f <= FloorScaling.DeepestFloor; f++)
+        {
+            if (Bestiary.ForFloor(f).Count != 0) continue;
+            Check(false, $"floor {f} has no enemies at all");
+            return;
+        }
+        Check(true, $"every floor to {FloorScaling.DeepestFloor} has enemies to spawn");
     }
 }

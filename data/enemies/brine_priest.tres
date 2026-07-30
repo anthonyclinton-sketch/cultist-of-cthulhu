@@ -1,0 +1,28 @@
+[gd_resource type="Resource" script_class="EnemyData" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://src/Enemies/EnemyData.cs" id="1"]
+
+[ext_resource type="Resource" path="res://data/patterns/priest_tideturn.tres" id="2"]
+
+[ext_resource type="Resource" path="res://data/patterns/priest_undertow.tres" id="3"]
+
+[resource]
+script = ExtResource("1")
+DisplayName = "Brine Priest"
+Role = 1
+CodexText = "It keeps the hours of the water rather than the hours of the sun, and its arms turn one way until the tide turns, and then the other. Watch the arms. They will tell you what the sea is about to do."
+Tint = Color(0.4, 0.66, 0.72, 1)
+BodyRadius = 12.0
+MinFloor = 2
+MaxHealth = 62.0
+MoveSpeed = 26.0
+ContactDamage = 0.5
+DreadCost = 22.0
+SanityValue = 15.0
+PreferredRange = 300.0
+AggroRange = 2000.0
+AttackCooldown = 4.2
+AttackCooldownVariance = 0.5
+RecoverySeconds = 0.9
+PrimaryAttack = ExtResource("2")
+AwakenedAttack = ExtResource("3")

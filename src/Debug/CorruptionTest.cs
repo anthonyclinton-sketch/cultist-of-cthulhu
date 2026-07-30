@@ -165,20 +165,12 @@ public sealed partial class CorruptionTest : Node2D
     /// </summary>
     private void TestEveryEnemyHasAnAwakenedAttack()
     {
-        string[] roster =
-        {
-            "res://data/enemies/acolyte.tres",
-            "res://data/enemies/cellar_ghoul.tres",
-            "res://data/enemies/tallow_man.tres",
-            "res://data/enemies/netcaster.tres",
-            "res://data/enemies/chanter.tres",
-        };
-
+        // The REAL bestiary, not a copy of it. This used to be five hardcoded paths, which
+        // meant an enemy authored after it was written was exempt from the one check that
+        // Corruption 3 does anything to it — the new floor-2 enemies would have been.
         int missing = 0;
-        foreach (string path in roster)
+        foreach (EnemyData d in Bestiary.All)
         {
-            var d = GD.Load<EnemyData>(path);
-            if (d is null) { missing++; continue; }
             if (d.AwakenedAttack is null)
             {
                 GD.PrintErr($"   {d.DisplayName} has no AwakenedAttack");
