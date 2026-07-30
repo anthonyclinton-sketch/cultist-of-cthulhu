@@ -144,6 +144,10 @@ public sealed partial class Minimap : Node2D
         // The boss counts. It is the thing in the room that is trying to kill you, and
         // leaving the one mark the player most wants off a threat display would read as the
         // feature being broken. Larger, so it is distinguishable from its own adds.
-        if (Enemies.Boss is { Alive: true } boss) DrawCircle(ToMap(boss.Position), r * 1.9f, EnemyCol);
+        for (int i = 0; i < Enemies.Bosses.Count; i++)
+        {
+            Enemies.Boss boss = Enemies.Bosses[i];
+            if (boss.Alive) DrawCircle(ToMap(boss.Position), r * 1.9f, EnemyCol);
+        }
     }
 }

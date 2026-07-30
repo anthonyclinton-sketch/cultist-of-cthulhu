@@ -26,10 +26,21 @@ public enum BossState { Idle, Stalk, Telegraph, Attack, Recover, Transition, Gra
 public sealed class Boss
 {
     /// <summary>
-    /// Reserved target id. Negative so it can never collide with the enemy manager's
-    /// counter, which starts at 1 and only rises.
+    /// Base of the reserved target id range. Negative so it can never collide with the enemy
+    /// manager's counter, which starts at 1 and only rises.
     /// </summary>
-    public const int TargetId = -777;
+    public const int TargetIdBase = -777;
+
+    /// <summary>
+    /// This boss's target id, assigned by <see cref="EnemyManager.RegisterBoss"/>.
+    ///
+    /// PER INSTANCE, not a constant, because floor 2 fights two bosses at once and a shared
+    /// id routes every hit on the consort into the matriarch's health bar. Assigned from
+    /// registration order rather than a static counter, so it is identical on every replay of
+    /// a seed — a static would make the ids depend on how many bosses the process had ever
+    /// built, which is exactly the kind of thing the determinism gate exists to catch.
+    /// </summary>
+    public int TargetId { get; internal set; } = TargetIdBase;
 
     public BossData Data { get; }
     public Vector2 Position;
@@ -39,11 +50,29 @@ public sealed class Boss
     public int Phase { get; private set; } = 1;
 
     public bool Alive => State != BossState.Dead;
+
     public float HealthFraction => Data.MaxHealth <= 0f ? 0f : Mathf.Clamp(Health / Data.MaxHealth, 0f, 1f);
 
-    /// <summary>Invulnerable during a phase transition — the fight is not happening, it is
-    /// changing. Damage landed here would be dealt to a boss that cannot answer.</summary>
-    public bool Invulnerable => State == BossState.Transition;
+    /// <summary>
+    /// Under the water and out of reach — docs/05 §7, where the tide submerges Mother Hydra
+    /// and her consort in turn and "the player must fight the right one at the right time".
+    ///
+    /// Pushed in by whoever owns the fight rather than read from a TideCycle here, for the
+    /// same reason the player does not know what water is: this class knows it cannot be hit,
+    /// not why. It also means the Doorstep, which has no such rule, carries no knowledge of it.
+    /// </summary>
+    public bool Submerged { get; set; }
+
+    /// <summary>
+    /// Invulnerable during a phase transition — the fight is not happening, it is changing.
+    /// Damage landed here would be dealt to a boss that cannot answer.
+    ///
+    /// Two sources, one question. Everything that asks "can I hurt this" — TakeDamage, the
+    /// target registration, the contact-damage scan, the HUD's UNTOUCHABLE label — asks this,
+    /// so the tide rule reached all four for free. A second parallel flag would have needed
+    /// each of them updated, and the one that got missed would be the interesting bug.
+    /// </summary>
+    public bool Invulnerable => State == BossState.Transition || Submerged;
 
     public float HitFlash { get; private set; }
     public float TelegraphProgress => _pattern.TelegraphProgress;

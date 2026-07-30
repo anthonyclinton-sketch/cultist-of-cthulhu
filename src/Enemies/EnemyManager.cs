@@ -144,11 +144,52 @@ public sealed partial class EnemyManager : Node2D
     /// and the execute bonus apply to a boss for free, instead of via a second copy of the
     /// damage pipeline that would drift.
     /// </summary>
-    public Boss? Boss { get; set; }
+    /// A LIST, because floor 2 is Mother Hydra's Brood — a matriarch and her consort, fought
+    /// simultaneously with the tide deciding which one is vulnerable (docs/05 §7). Floor 5's
+    /// Nyarlathotep is three avatars, so this is not a one-off either.
+    ///
+    /// One boss is simply the list with one entry, which is what makes the change safe: every
+    /// existing fight keeps running through exactly the same damage, targeting and contact
+    /// paths, and the Doorstep gate proves it every commit.
+    /// </summary>
+    public readonly List<Boss> Bosses = new(2);
+
+    /// <summary>The first living boss, for the callers that genuinely only want one — the
+    /// minimap marker, and the phase read that scales incoming damage.</summary>
+    public Boss? PrimaryBoss
+    {
+        get
+        {
+            for (int i = 0; i < Bosses.Count; i++) if (Bosses[i].Alive) return Bosses[i];
+            return null;
+        }
+    }
+
+    public bool AnyBossAlive
+    {
+        get
+        {
+            for (int i = 0; i < Bosses.Count; i++) if (Bosses[i].Alive) return true;
+            return false;
+        }
+    }
 
     /// <summary>Solid geometry for pathing and for enemy bodies. Null in the fixed arena,
     /// where the only walls are the bounds.</summary>
     public Core.TileMask? Walls { get; private set; }
+
+    /// <summary>
+    /// Add a boss to the fight and give it a unique target id.
+    ///
+    /// The one place ids are assigned, so two bosses cannot share one — which would route
+    /// every hit on the consort into the matriarch's health. Derived from registration order
+    /// rather than a static counter so a replayed seed produces identical ids.
+    /// </summary>
+    public void RegisterBoss(Boss boss)
+    {
+        boss.TargetId = Boss.TargetIdBase - Bosses.Count;
+        Bosses.Add(boss);
+    }
 
     public void SetWalls(Core.TileMask mask)
     {
@@ -245,7 +286,7 @@ public sealed partial class EnemyManager : Node2D
         _enemies.Clear();
         AliveCount = 0;
         KilledThisRoom = 0;
-        Boss = null;
+        Bosses.Clear();
         _bossKilled = false;
     }
 
@@ -331,12 +372,16 @@ public sealed partial class EnemyManager : Node2D
             float dmg = _playerBullets.GetHitDamage(h);
             Vector2 at = _playerBullets.GetHitPosition(h);
 
-            if (id == Boss.TargetId)
+            // Boss ids sit in their own negative range, so one comparison rules them out
+            // before the enemy scan — this runs per bullet hit per tick.
+            if (id <= Boss.TargetIdBase)
             {
-                if (Boss is not null)
+                for (int b = 0; b < Bosses.Count; b++)
                 {
-                    if (Boss.TakeDamage(dmg)) _bossKilled = true;
+                    if (Bosses[b].TargetId != id) continue;
+                    if (Bosses[b].TakeDamage(dmg)) _bossKilled = true;
                     BossHitsThisTick++;
+                    break;
                 }
                 continue;
             }
@@ -444,7 +489,19 @@ public sealed partial class EnemyManager : Node2D
         // it during a phase transition. Registering it only when damageable would make
         // shots pass through the boss for a second and a half, which reads as the fight
         // having broken rather than as the boss being briefly untouchable.
-        if (Boss is { Alive: true }) _playerBullets.RegisterTarget(Boss.TargetId, Boss.Position, Boss.BodyRadius);
+        for (int b = 0; b < Bosses.Count; b++)
+        {
+            Boss boss = Bosses[b];
+            if (!boss.Alive) continue;
+
+            // An INVULNERABLE boss is not registered at all, rather than registered and
+            // then ignored. docs/05 §7's whole fight is "hit the right one at the right
+            // time", and a bullet that visibly connects with a submerged matriarch and does
+            // nothing reads as a broken hitbox, not as a rule. Bullets pass through her.
+            if (boss.Invulnerable) continue;
+
+            _playerBullets.RegisterTarget(boss.TargetId, boss.Position, boss.BodyRadius);
+        }
     }
 
     private void QueueFree_DeadEnemies()
@@ -559,8 +616,15 @@ public sealed partial class EnemyManager : Node2D
         // all and its only means of touching you is the grab — contact damage there would
         // quietly double-charge the player for the same collision, once in hearts and once
         // in Sanity.
-        if (Boss is { Alive: true, Phase: < 3 } b && b.Data.ContactDamage > worst)
+        for (int i = 0; i < Bosses.Count; i++)
         {
+            Boss b = Bosses[i];
+            if (b is not { Alive: true, Phase: < 3 } || b.Data.ContactDamage <= worst) continue;
+
+            // A submerged boss has no body to walk into. Without this the matriarch would be
+            // unhittable and still lethal to touch, which is the worst of both rules.
+            if (b.Invulnerable) continue;
+
             float rr = playerRadius + b.BodyRadius;
             if (b.Position.DistanceSquaredTo(playerPos) <= rr * rr) worst = b.Data.ContactDamage;
         }

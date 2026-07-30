@@ -244,10 +244,11 @@ public sealed partial class FloorRunner : Node2D
             // Wait for the fight to be genuinely under way — phase 2, so adds have spawned
             // and the boss has changed state at least once. Dying to a boss in its opening
             // pose exercises less than dying to one mid-fight.
-            if (_boss is not { Alive: true } b || b.Phase < 2) return;
+            Boss? b = _enemies?.PrimaryBoss;
+            if (b is null || b.Phase < 2) return;
             _deathDrillArmed = true;
             GD.Print($"[death drill] killing the harness mid-boss, phase {b.Phase}, " +
-                     $"{_enemies.AliveCount} adds alive.");
+                     $"{_enemies!.AliveCount} adds alive.");
         }
         else
         {
@@ -515,9 +516,8 @@ public sealed partial class FloorRunner : Node2D
         _pendingSealRoom = -1;
         _currentRoom = -1;
         _roomsCleared = 0;
-        _boss = null;
         _bossRoom = -1;
-        _hud.Boss = null;
+        _hud.Bosses = null;
         if (_reverie.IsOpen) _reverie.Close();
     }
 
@@ -918,8 +918,19 @@ public sealed partial class FloorRunner : Node2D
         // carry no source attribution — the alternative is a damage field on the bullet
         // struct, and widening the array the M0 performance gate measures is not something to
         // do for one rule. In a boss room the boss sets the difficulty anyway.
-        _player.IncomingDamageMultiplier = _boss is { Alive: true } boss
-            ? FloorScaling.BossDamageMultiplier(_run.FloorIndex, boss.Phase)
+        // The DEEPEST phase among living bosses. Two bosses can be in different phases, and
+        // the player is in one room taking hits from both — the harsher rule is the one that
+        // describes the room they are actually standing in.
+        int bossPhase = 0;
+        if (_enemies is not null)
+            for (int i = 0; i < _enemies.Bosses.Count; i++)
+            {
+                Boss b = _enemies.Bosses[i];
+                if (b.Alive && b.Phase > bossPhase) bossPhase = b.Phase;
+            }
+
+        _player.IncomingDamageMultiplier = bossPhase > 0
+            ? FloorScaling.BossDamageMultiplier(_run.FloorIndex, bossPhase)
             : FloorScaling.DamageMultiplier(_run.FloorIndex);
 
         TickTide(dt);
@@ -939,7 +950,7 @@ public sealed partial class FloorRunner : Node2D
         // counts enemies and the boss is not one, so the fight would end the moment its
         // phase-2 adds were killed.
         bool enemiesDone = _director.Active ? _director.Finished : _enemies.AliveCount == 0;
-        if (_encounterActive && enemiesDone && _boss is null) ClearRoom();
+        if (_encounterActive && enemiesDone && !_enemies.AnyBossAlive) ClearRoom();
         if (_player.IsDead) OnDeath();
 
         HandleReverie();
@@ -1141,16 +1152,16 @@ public sealed partial class FloorRunner : Node2D
         }
 
         Vector2 centre = _geometry.RoomAnchorWorld(room);
-        _boss = new Boss(_bossData, centre + new Vector2(0f, -140f), _enemyBullets,
-                         Hash.Derive(GameRoot.Instance.RunSeed, "boss", room.NodeId));
-        _boss.SetWalls(_enemies.Walls);
-        _enemies.Boss = _boss;
+        var boss = new Boss(_bossData, centre + new Vector2(0f, -140f), _enemyBullets,
+                            Hash.Derive(GameRoot.Instance.RunSeed, "boss", room.NodeId));
+        boss.SetWalls(_enemies.Walls);
+        _enemies.RegisterBoss(boss);
 
         // The boss's own adds obey the Corruption thresholds like anything else that spawns.
         _enemies.SpawnAwakened = CorruptionTiers.EnemiesAwakened(_player.Corruption);
 
         _bossRoom = room.NodeId;
-        _hud.Boss = _boss;
+        _hud.Bosses = _enemies.Bosses;
         _encounterActive = true;
         _pendingSealRoom = room.NodeId;
         _run.Telemetry.BeginRoom(_roomsCleared + 1, _player.Sanity);
@@ -1160,7 +1171,6 @@ public sealed partial class FloorRunner : Node2D
     }
 
     private BossData? _bossData;
-    private Boss? _boss;
     private int _bossRoom = -1;
 
     /// <summary>
@@ -1174,34 +1184,46 @@ public sealed partial class FloorRunner : Node2D
     /// </summary>
     private void TickBoss(float dt)
     {
-        if (_boss is null) return;
+        if (_enemies is null || _enemies.Bosses.Count == 0) return;
 
-        _boss.HallucinationRatio = _player.Sanity.HallucinationRatio;
-        _boss.Tick(dt, _player.GlobalPosition, _player.Velocity);
-
-        int phase = _boss.ConsumePhaseChange();
-        if (phase > 0) OnBossPhase(phase);
-        if (_boss.PendingAdds > 0) SpawnBossAdds(_boss.PendingAdds);
-
-        // The grab (docs/05 §7). It costs SANITY, not health — which at low Sanity means it
-        // does not hurt, it disarms: no reload, no Banish, and one more hit from Ascension.
-        if (_boss.GrabConnectedThisTick && !_player.IsInvulnerable)
+        for (int i = 0; i < _enemies.Bosses.Count; i++)
         {
-            _player.SufferGrab(_bossData!.GrabSanityCost);
-            GD.Print($"[BOSS] the passenger got a hold of you — −{_bossData.GrabSanityCost:F0} Sanity.");
+            Boss boss = _enemies.Bosses[i];
+            if (!boss.Alive) continue;
+
+            boss.HallucinationRatio = _player.Sanity.HallucinationRatio;
+            boss.Tick(dt, _player.GlobalPosition, _player.Velocity);
+
+            int phase = boss.ConsumePhaseChange();
+            if (phase > 0) OnBossPhase(boss, phase);
+            if (boss.PendingAdds > 0) SpawnBossAdds(boss, boss.PendingAdds);
+
+            // The grab (docs/05 §7). It costs SANITY, not health — which at low Sanity means
+            // it does not hurt, it disarms: no reload, no Banish, and one more hit from
+            // Ascension.
+            if (boss.GrabConnectedThisTick && !_player.IsInvulnerable)
+            {
+                _player.SufferGrab(boss.Data.GrabSanityCost);
+                GD.Print($"[BOSS] the passenger got a hold of you — " +
+                         $"−{boss.Data.GrabSanityCost:F0} Sanity.");
+            }
         }
 
-        // Either the manager reported the kill, or the boss is simply dead.
+        // Either the manager reported a kill, or every boss is simply dead.
         //
-        // The latch alone was not enough: it is only set by player-bullet hit resolution,
-        // so a boss killed by anything else — melee is routed separately, and later a sigil
-        // proc or a damage-over-time will be too — died with its state set to Dead and the
-        // floor simply never ended. The autorun harness found this on its first run by
-        // killing the boss directly and then standing in the arena forever.
-        if (_enemies.ConsumeBossKilled() || !_boss.Alive) OnBossDefeated();
+        // The latch alone was not enough: it is only set by player-bullet hit resolution, so
+        // a boss killed by anything else — melee is routed separately, and later a sigil proc
+        // or a damage-over-time will be too — died with its state set to Dead and the floor
+        // simply never ended. The autorun harness found this on its first run by killing the
+        // boss directly and then standing in the arena forever.
+        //
+        // ALL of them, now. A two-boss fight that ended when the first one died would let a
+        // player kill the consort and walk past the matriarch.
+        _enemies.ConsumeBossKilled();
+        if (!_enemies.AnyBossAlive) OnBossDefeated();
     }
 
-    private void OnBossPhase(int phase)
+    private void OnBossPhase(Boss boss, int phase)
     {
         // Clear the screen on a phase change. Not a mercy: the transition is invulnerable
         // and stationary, so bullets left over from the previous phase would be hitting a
@@ -1215,18 +1237,18 @@ public sealed partial class FloorRunner : Node2D
                  + "The body finds a new arrangement.",
             _ => "It leaves the body where it falls and comes for the only other one in the room.",
         };
-        GD.Print($"[BOSS] phase {phase}. {line}");
+        GD.Print($"[BOSS] {boss.Data.DisplayName} phase {phase}. {line}");
     }
 
-    private void SpawnBossAdds(int count)
+    private void SpawnBossAdds(Boss boss, int count)
     {
-        if (_roster.Count == 0 || _boss is null) return;
+        if (_roster.Count == 0) return;
 
         for (int i = 0; i < count; i++)
         {
             EnemyData pick = PickEnemy(needFodder: true);
             float a = _rng.NextAngle();
-            Vector2 at = _boss.Position + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * 110f;
+            Vector2 at = boss.Position + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * 110f;
             _enemies.Spawn(pick, at);
         }
     }
@@ -1236,13 +1258,14 @@ public sealed partial class FloorRunner : Node2D
         BossData data = _bossData!;
         GD.Print($"[BOSS] {data.DisplayName} is dead. What is left is a man, and he is grateful.");
 
-        _enemies.Boss = null;
-        _hud.Boss = null;
+        // Where the last one fell, before the list is cleared — that is where the drop lands.
+        Vector2 at = _player.GlobalPosition;
+        for (int i = 0; i < _enemies.Bosses.Count; i++) at = _enemies.Bosses[i].Position;
+
+        _enemies.Bosses.Clear();
+        _hud.Bosses = null;
         _enemyBullets.Clear();
         _player.AddTrauma(0.8f);
-
-        Vector2 at = _boss?.Position ?? _player.GlobalPosition;
-        _boss = null;
 
         // Guaranteed drop (docs/04 §6): a boss always yields a sigil, plus gold and a key.
         var rng = Hash.Derive(GameRoot.Instance.RunSeed, "boss_drop", _bossRoom);
@@ -1926,47 +1949,62 @@ public sealed partial class FloorRunner : Node2D
     /// </summary>
     private void DrawBoss()
     {
-        if (_boss is null || !_boss.Alive) return;
+        if (_enemies is null) return;
+        for (int i = 0; i < _enemies.Bosses.Count; i++)
+        {
+            Boss b = _enemies.Bosses[i];
+            if (b.Alive) DrawOneBoss(b);
+        }
+    }
 
-        Color body = _boss.HitFlash > 0f ? Colors.White : _boss.PhaseTint;
-        float r = _boss.BodyRadius;
+    private void DrawOneBoss(Boss boss)
+    {
+        Color body = boss.HitFlash > 0f ? Colors.White : boss.PhaseTint;
+        float r = boss.BodyRadius;
+
+        // A submerged boss is a silhouette under the water, not a body on it — the fight is
+        // "hit the right one at the right time" (docs/05 §7) and the player has to be able to
+        // tell at a glance which is which without reading the bars.
+        if (boss.Submerged) body = body.Darkened(0.5f) with { A = 0.45f };
 
         // Phase 3 has no body: a shimmer with a hole in it, so it reads as a presence
         // rather than a creature.
-        if (_boss.Phase == 3)
+        if (boss.Phase == 3)
         {
-            DrawCircle(_boss.Position, r * 1.9f, body with { A = 0.18f });
-            DrawArc(_boss.Position, r, 0, Mathf.Tau, 28, body, 2.5f);
+            DrawCircle(boss.Position, r * 1.9f, body with { A = 0.18f });
+            DrawArc(boss.Position, r, 0, Mathf.Tau, 28, body, 2.5f);
         }
         else
         {
-            DrawCircle(_boss.Position, r, body);
+            DrawCircle(boss.Position, r, body);
         }
 
-        if (_boss.Invulnerable)
+        // The transition ring only — a submerged boss is not transitioning, and drawing a
+        // closing white ring around it would say "phase change" when it means "under water".
+        if (boss.Invulnerable && !boss.Submerged)
         {
-            float t = _boss.TransitionProgress;
-            DrawArc(_boss.Position, r + 6f + t * 26f, 0, Mathf.Tau, 40,
+            float t = boss.TransitionProgress;
+            DrawArc(boss.Position, r + 6f + t * 26f, 0, Mathf.Tau, 40,
                     new Color(1f, 1f, 1f, 1f - t), 2f);
         }
 
-        if (_boss.State == BossState.Telegraph)
+        if (boss.State == BossState.Telegraph)
         {
-            DrawArc(_boss.Position, r + 5f + _boss.TelegraphProgress * 10f,
-                    0, Mathf.Tau * _boss.TelegraphProgress, 28, new Color("FF5555"), 2.5f);
+            DrawArc(boss.Position, r + 5f + boss.TelegraphProgress * 10f,
+                    0, Mathf.Tau * boss.TelegraphProgress, 28, new Color("FF5555"), 2.5f);
         }
 
-        if (_boss.State == BossState.GrabWindup)
+        if (boss.State == BossState.GrabWindup)
         {
-            Vector2 toPlayer = (_player.GlobalPosition - _boss.Position).Normalized();
+            Vector2 toPlayer = (_player.GlobalPosition - boss.Position).Normalized();
             float half = Mathf.DegToRad(16f);
             float a = Mathf.Atan2(toPlayer.Y, toPlayer.X);
-            float reach = _bossData!.GrabLungeSpeed * _bossData.GrabLungeSeconds;
+            float reach = boss.Data.GrabLungeSpeed * boss.Data.GrabLungeSeconds;
 
             var pts = new Vector2[3];
-            pts[0] = _boss.Position;
-            pts[1] = _boss.Position + new Vector2(Mathf.Cos(a - half), Mathf.Sin(a - half)) * reach;
-            pts[2] = _boss.Position + new Vector2(Mathf.Cos(a + half), Mathf.Sin(a + half)) * reach;
+            pts[0] = boss.Position;
+            pts[1] = boss.Position + new Vector2(Mathf.Cos(a - half), Mathf.Sin(a - half)) * reach;
+            pts[2] = boss.Position + new Vector2(Mathf.Cos(a + half), Mathf.Sin(a + half)) * reach;
             DrawColoredPolygon(pts, new Color(0.85f, 0.25f, 0.35f, 0.22f));
         }
 
@@ -2011,8 +2049,16 @@ public sealed partial class FloorRunner : Node2D
             // actually crossed and the invulnerable transitions actually run. One-shotting
             // it would test the death path and nothing else, and the phase machine is the
             // part with moving pieces.
-            if (_boss is not null && !_boss.Invulnerable)
-                _boss.TakeDamage(_boss.Data.MaxHealth * 0.11f);
+            //
+            // Every living boss, because a two-boss fight where the harness only ever hit
+            // one would leave the other at full health and the floor would never end. The
+            // Invulnerable skip means a submerged boss is left alone, which is exactly the
+            // rule a player is under — so the harness proves the tide window is reachable.
+            for (int i = 0; i < _enemies.Bosses.Count; i++)
+            {
+                Boss b = _enemies.Bosses[i];
+                if (b.Alive && !b.Invulnerable) b.TakeDamage(b.Data.MaxHealth * 0.11f);
+            }
             return;
         }
 

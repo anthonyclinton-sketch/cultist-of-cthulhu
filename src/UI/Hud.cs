@@ -48,8 +48,9 @@ public sealed partial class Hud : Node2D
         DrawAscension();
     }
 
-    /// <summary>Set by the room owner while a boss fight is running.</summary>
-    public Enemies.Boss? Boss { get; set; }
+    /// <summary>Set by the room owner while a boss fight is running. More than one on floor 2
+    /// — Mother Hydra's Brood is a matriarch and a consort, fought at once (docs/05 §7).</summary>
+    public System.Collections.Generic.IReadOnlyList<Enemies.Boss>? Bosses { get; set; }
 
     /// <summary>
     /// The boss bar. Pinned to the top of the SCREEN, not drawn above the boss.
@@ -67,17 +68,37 @@ public sealed partial class Hud : Node2D
     /// </summary>
     private void DrawBoss()
     {
-        if (Boss is not { Alive: true } b) return;
+        if (Bosses is null) return;
 
+        // Bars stack downward, one per LIVING boss. A dead one's bar is removed rather than
+        // left empty: on a two-boss fight an empty bar and a full one side by side reads as
+        // "half done", when what it means is "that one is finished, this one is the fight".
+        int row = 0;
+        for (int i = 0; i < Bosses.Count; i++)
+        {
+            Enemies.Boss b = Bosses[i];
+            if (!b.Alive) continue;
+            DrawBossBar(b, row++);
+        }
+    }
+
+    private void DrawBossBar(Enemies.Boss b, int row)
+    {
         var font = ThemeDB.FallbackFont;
         // 340 wide rather than centred-and-as-wide-as-it-fits: the minimap occupies the
         // top-right from x=500, and a bar that runs under it hides its own last 10% —
         // which is precisely the part the player is watching at the end of a phase.
         const float w = 340f, h = 7f;
-        var at = new Vector2(130f, 22f);
+        var at = new Vector2(130f, 22f + row * 22f);
 
         DrawRect(new Rect2(at - new Vector2(1, 1), new Vector2(w + 2, h + 2)), new Color(0, 0, 0, 0.72f));
-        DrawRect(new Rect2(at, new Vector2(w * b.HealthFraction, h)), b.PhaseTint);
+
+        // A submerged boss's bar DIMS rather than disappearing. The fight is "hit the right
+        // one at the right time" (docs/05 §7), so which one is currently hittable has to be
+        // readable from the bars alone — the bodies are across the room and one of them is
+        // under water.
+        Color fill = b.Submerged ? b.PhaseTint.Darkened(0.55f) : b.PhaseTint;
+        DrawRect(new Rect2(at, new Vector2(w * b.HealthFraction, h)), fill);
 
         foreach (float threshold in new[] { b.Data.Phase2At, b.Data.Phase3At })
         {
@@ -91,10 +112,11 @@ public sealed partial class Hud : Node2D
                    HorizontalAlignment.Left, -1, 9, new Color("8B8578"));
 
         // The transition is invulnerable, and a player who does not know that reads it as
-        // their damage having stopped working.
+        // their damage having stopped working. Same for the tide holding one under.
         if (b.Invulnerable)
         {
-            DrawString(font, at + new Vector2(w * 0.5f - 30f, h + 12f), "UNTOUCHABLE",
+            DrawString(font, at + new Vector2(w * 0.5f - 30f, h + 6f),
+                       b.Submerged ? "SUBMERGED" : "UNTOUCHABLE",
                        HorizontalAlignment.Left, -1, 9, new Color("FFE066"));
         }
     }
