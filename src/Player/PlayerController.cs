@@ -150,7 +150,15 @@ public sealed partial class PlayerController : CharacterBody2D
     public float IncomingLightningMultiplier =>
         IsDrenched ? Tune.DrenchedLightningMultiplier : 1f;
 
-    private void TickDrenched(float dt)
+    /// <summary>
+    /// Public so the tide gate can advance the timer without running the whole player tick,
+    /// which wants input, weapons and a Sanity system it has no opinion about.
+    ///
+    /// The same seam BlinkTest needed for the same reason: driving a controller through its
+    /// real entry point means driving everything the entry point touches, and the parts that
+    /// do not survive synthetic input are the parts that make the measurement a lie.
+    /// </summary>
+    public void TickDrenched(float dt)
     {
         if (_drenchedFor > 0f) _drenchedFor = Mathf.Max(0f, _drenchedFor - dt);
     }

@@ -136,6 +136,10 @@ Write-Host "`n### CORRUPTION ###"
 & $godot --headless --path $root res://scenes/debug/CorruptionTest.tscn
 if ($LASTEXITCODE -ne 0) { $failed += "corruption" }
 
+Write-Host "`n### THE TIDE ###"
+& $godot --headless --path $root res://scenes/debug/TideTest.tscn
+if ($LASTEXITCODE -ne 0) { $failed += "tide" }
+
 Write-Host "`n### BOSS 1 ###"
 & $godot --headless --path $root res://scenes/debug/BossTest.tscn
 if ($LASTEXITCODE -ne 0) { $failed += "boss" }
