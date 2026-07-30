@@ -120,6 +120,41 @@ public sealed partial class PlayerController : CharacterBody2D
     /// </summary>
     public float IncomingDamageMultiplier { get; set; } = 1f;
 
+    // ---------------------------------------------------------------- The Tide (docs/07 §3)
+
+    /// <summary>Speed multiplier from the ground underfoot — 0.7 while wading (docs/07 §3),
+    /// 1 otherwise. Pushed per tick by the owning scene, like
+    /// <see cref="IncomingDamageMultiplier"/>. The player does not know what water is; it
+    /// knows it is slow here.</summary>
+    public float TerrainSpeedMultiplier { get; set; } = 1f;
+
+    private float _drenchedFor;
+
+    /// <summary>docs/03 §Elements — wet, and it lingers. Separate from wading because it
+    /// follows you out of the water, which is what makes being caught by the tide cost
+    /// something past the moment it catches you.</summary>
+    public bool IsDrenched => _drenchedFor > 0f;
+
+    /// <summary>Seconds of Drenched left, for the HUD.</summary>
+    public float DrenchedRemaining => _drenchedFor;
+
+    /// <summary>Refresh the Drenched timer. Called while in water, and by the Brine element
+    /// and the Innsmouth Blood sigil when those land (docs/04 §5.2).</summary>
+    public void Drench() => _drenchedFor = Tune.DrenchedDuration;
+
+    private float DrenchedSpeedMultiplier => IsDrenched ? Tune.DrenchedMoveMultiplier : 1f;
+
+    /// <summary>docs/03 §Elements — Drenched targets take +40% from lightning. Read by
+    /// whatever deals lightning damage; nothing does yet, and the multiplier is here rather
+    /// than at the call site so that when something does, there is one answer to ask.</summary>
+    public float IncomingLightningMultiplier =>
+        IsDrenched ? Tune.DrenchedLightningMultiplier : 1f;
+
+    private void TickDrenched(float dt)
+    {
+        if (_drenchedFor > 0f) _drenchedFor = Mathf.Max(0f, _drenchedFor - dt);
+    }
+
     // ================================================================ Sigils
     //
     // Everything below is the seam between docs/04 and the rest of the player. The rule
@@ -304,6 +339,8 @@ public sealed partial class PlayerController : CharacterBody2D
             CollectKillRewards();
             return;   // no Blink Step, no weapons, no incoming damage while Ascended
         }
+
+        TickDrenched(dt);
 
         HandleBanishAndOpenEye(dt);
         HandleBlinkInput();
@@ -566,7 +603,8 @@ public sealed partial class PlayerController : CharacterBody2D
     {
         Vector2 input = ReadMoveInput();
 
-        float speed = Tune.PlayerMoveSpeed * Sanity.MoveSpeedMultiplier * Circle.Effects.MoveSpeedMultiplier;
+        float speed = Tune.PlayerMoveSpeed * Sanity.MoveSpeedMultiplier * Circle.Effects.MoveSpeedMultiplier
+                      * TerrainSpeedMultiplier * DrenchedSpeedMultiplier;
         if (Input.IsActionPressed("fire")) speed *= Tune.PlayerFiringSpeedMult;
 
         Vector2 target = input * speed;

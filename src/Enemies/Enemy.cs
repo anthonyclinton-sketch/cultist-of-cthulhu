@@ -164,11 +164,26 @@ public sealed class Enemy
     /// </summary>
     private void Move(float dt)
     {
-        Vector2 delta = Velocity * dt;
+        // The tide is applied HERE, at the single integration point, and not to Data.MoveSpeed
+        // at the nine places that read it. Same reasoning as the comment above: a multiplier
+        // that has to be remembered in nine places is a multiplier that will be forgotten in
+        // three of them, and the ones forgotten would be the lunge and the knockback — the
+        // two that move a body furthest per tick.
+        Vector2 delta = Velocity * TideSpeedMultiplier * dt;
         Position = _walls is null
             ? Position + delta
             : _walls.MoveCircle(Position, delta, Data.BodyRadius);
     }
+
+    /// <summary>
+    /// docs/07 §3 / docs/05 §3 — a Deep One swims through water at 2×; everything else wades
+    /// at the player's 0.7. Set per tick by <see cref="EnemyManager"/>.
+    ///
+    /// This is the asymmetry that makes the tide a decision rather than a global slow: the
+    /// same water that costs you speed buys it for the thing chasing you, so high tide is not
+    /// "everything is slower", it is "you are in their element now".
+    /// </summary>
+    public float TideSpeedMultiplier { get; set; } = 1f;
 
     public void Tick(float dt, Vector2 playerPos, Vector2 playerVel, FlowField field,
                      Core.TileMask? walls)

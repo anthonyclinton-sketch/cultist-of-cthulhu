@@ -282,6 +282,34 @@ public static class Tune
     /// <summary>docs/02 §2 — a boss hits for a full heart from phase 2, on every floor.</summary>
     public const int BossFullHeartPhase = 2;
 
+    // ------------------------------------------------------ The Tide (docs/07 §3, floor 2)
+    //
+    // Read through Core.TideCycle and Core.TideField. The period is the one number the player
+    // actually learns, so it is a rhythm to be tuned by feel, not a difficulty knob.
+
+    /// <summary>Seconds for a full low → high → low cycle.</summary>
+    public const float TidePeriod = 20f;
+
+    /// <summary>docs/07 §3 — wading slows you to 0.7. A movement tax the player can see
+    /// coming and route around, which is the whole point of synchronising the cycle.</summary>
+    public const float TideWadeSpeedMultiplier = 0.7f;
+
+    /// <summary>docs/07 §3 — Deep Ones swim. docs/05 §3 gives the same 2× for water tiles, so
+    /// this is the one number both statements mean.</summary>
+    public const float TideSwimSpeedMultiplier = 2f;
+
+    /// <summary>docs/03 §Elements — Drenched targets take +40% from lightning.</summary>
+    public const float DrenchedLightningMultiplier = 1.4f;
+
+    /// <summary>docs/03 §Elements — Drenched costs 20% move. Distinct from wading: wading is
+    /// where you ARE, Drenched is what you CARRY, and a player who leaves the water wet keeps
+    /// this until it dries. They stack, and that is intended — being caught by the tide
+    /// should cost something past the moment it catches you.</summary>
+    public const float DrenchedMoveMultiplier = 0.8f;
+
+    /// <summary>Seconds a target stays Drenched after leaving the water.</summary>
+    public const float DrenchedDuration = 4f;
+
     // ---------------------------------------------------------------- Bullets (docs/09 §3)
 
     public const int MaxBullets = 4096;                  // hard array capacity

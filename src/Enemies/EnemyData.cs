@@ -33,6 +33,17 @@ public partial class EnemyData : Resource
     [Export] public float ContactDamage { get; set; } = 0.5f;
 
     /// <summary>
+    /// docs/05 §3 — "swims through water tiles at 2× speed". True for Deep Ones and the rest
+    /// of Mother Hydra's brood; false for everything that has to wade, which is the player and
+    /// every Undercroft enemy.
+    ///
+    /// Authored rather than inferred from the floor an enemy belongs to: the tide is what
+    /// makes floor 2 a floor rather than a palette, and which side of it a creature is on is
+    /// a design statement about that creature.
+    /// </summary>
+    [Export] public bool SwimsInWater { get; set; }
+
+    /// <summary>
     /// Cost against the room's Dread Budget (docs/06 §6.1). Not derived from health —
     /// authored, so a cheap-but-annoying enemy can be priced like an expensive one.
     /// </summary>

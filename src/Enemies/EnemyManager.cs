@@ -42,6 +42,11 @@ public sealed partial class EnemyManager : Node2D
     /// <summary>Driven from the player's Sanity band each tick (docs/02 §3.4).</summary>
     public float HallucinationRatio;
 
+    /// <summary>The tide, pushed down each tick (docs/07 §3). Null on every floor but the
+    /// Wharfs, and the null check is the whole cost of the tide elsewhere.</summary>
+    public Core.TideField? Water;
+    public float TideLevel;
+
     /// <summary>
     /// Extra damage against enemies below 30% health — docs/04 §5.1, Rite of the Open Wound.
     ///
@@ -265,6 +270,7 @@ public sealed partial class EnemyManager : Node2D
             if (!e.Alive) continue;
             e.Ascended = PlayerAscended;
             e.HallucinationRatio = HallucinationRatio;
+            e.TideSpeedMultiplier = TideSpeedFor(e);
             e.Tick(dt, PlayerPosition, PlayerVelocity, _field, Walls);
             AliveCount++;
         }
@@ -511,6 +517,23 @@ public sealed partial class EnemyManager : Node2D
             affected++;
         }
         return affected;
+    }
+
+    /// <summary>
+    /// docs/07 §3 — what the water does to this enemy right now. Swimmers gain, everything
+    /// else wades and loses, and on dry land or a dry floor it is 1.
+    ///
+    /// Evaluated per enemy per tick rather than cached on the enemy when it enters water:
+    /// the tide moves the shoreline under a stationary body, so "when it entered" is not a
+    /// moment that exists.
+    /// </summary>
+    private float TideSpeedFor(Enemy e)
+    {
+        if (Water is null || !Water.AnyWater) return 1f;
+        if (!Water.IsSubmerged(e.Position, TideLevel)) return 1f;
+        return e.Data.SwimsInWater
+            ? Core.Tune.TideSwimSpeedMultiplier
+            : Core.Tune.TideWadeSpeedMultiplier;
     }
 
     /// <summary>Contact damage check. Returns the largest contact damage overlapping.</summary>

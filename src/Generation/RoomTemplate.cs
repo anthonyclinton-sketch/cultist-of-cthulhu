@@ -81,6 +81,30 @@ public partial class RoomTemplate : Resource
     public Rect2I ObstacleAt(int i) =>
         new(Obstacles[i * 4], Obstacles[i * 4 + 1], Obstacles[i * 4 + 2], Obstacles[i * 4 + 3]);
 
+    /// <summary>
+    /// Water in the room, as FIVE ints per block: x, y, width, height, flood level. The first
+    /// four match <see cref="Obstacles"/> exactly; the fifth is the tide level at which the
+    /// block goes under, 1 (floods almost always) to <see cref="Core.TideField.MaxFloodLevel"/>
+    /// (floods only at the peak) — see docs/07 §3.
+    ///
+    /// It is the fifth int that makes a tide LINE rather than a room that blinks wet. Author a
+    /// channel as a run of blocks stepping 1, 2, 3, 4 away from the water's edge and the
+    /// shoreline sweeps across it as the cycle turns.
+    ///
+    /// Water is NOT solid and is deliberately not carved into the walkable grid the way
+    /// obstacles are. Everything can enter it; what changes is the cost. Making it solid at
+    /// high tide would seal rooms on a timer, which is the one thing docs/06's validation
+    /// exists to prevent, and it would do it to a floor that already passed validation.
+    /// </summary>
+    [Export] public int[] Water { get; set; } = System.Array.Empty<int>();
+
+    public int WaterCount => Water.Length / 5;
+
+    public Rect2I WaterAt(int i) =>
+        new(Water[i * 5], Water[i * 5 + 1], Water[i * 5 + 2], Water[i * 5 + 3]);
+
+    public int WaterFloodLevel(int i) => Water[i * 5 + 4];
+
     [ExportGroup("Encounter")]
     /// <summary>Upper bound on Dread this room can hold — a function of its floor area and
     /// cover, authored per room (docs/06 §6.1).</summary>
@@ -126,7 +150,46 @@ public partial class RoomTemplate : Resource
         foreach (int o in EastExits) if (o < 1 || o >= HeightTiles - 1) return $"{Id}: east exit {o} out of range.";
         foreach (int o in WestExits) if (o < 1 || o >= HeightTiles - 1) return $"{Id}: west exit {o} out of range.";
 
-        return ValidateObstacles();
+        return ValidateObstacles() ?? ValidateWater();
+    }
+
+    /// <summary>
+    /// Water must be well-formed and inside the room.
+    ///
+    /// Unlike obstacles it cannot seal anything — water is never solid — so this checks the
+    /// two things that CAN go wrong silently. A stride that is not five turns every block
+    /// after the mistake into garbage coordinates, and a flood level of 0 authors a block of
+    /// water that is never once underwater, which looks like a tuning problem in the tide
+    /// rather than a typo in a room.
+    /// </summary>
+    private string? ValidateWater()
+    {
+        if (Water.Length == 0) return null;
+        if (Water.Length % 5 != 0)
+            return $"{Id}: Water has {Water.Length} ints; it must be five per block " +
+                   $"(x, y, w, h, flood level).";
+
+        for (int i = 0; i < WaterCount; i++)
+        {
+            Rect2I r = WaterAt(i);
+            int level = WaterFloodLevel(i);
+
+            if (level < 1 || level > Core.TideField.MaxFloodLevel)
+                return $"{Id}: water block {i} has flood level {level}; it must be 1.." +
+                       $"{Core.TideField.MaxFloodLevel}. Level 0 never floods, which is not " +
+                       $"water — delete the block instead.";
+
+            if (r.Size.X <= 0 || r.Size.Y <= 0)
+                return $"{Id}: water block {i} is {r.Size.X}x{r.Size.Y}; it must have area.";
+
+            if (r.Position.X < 1 || r.Position.Y < 1 ||
+                r.Position.X + r.Size.X > WidthTiles - 1 ||
+                r.Position.Y + r.Size.Y > HeightTiles - 1)
+                return $"{Id}: water block {i} at {r.Position} size {r.Size} leaves the " +
+                       $"room interior ({WidthTiles}x{HeightTiles} with a 1-tile wall).";
+        }
+
+        return null;
     }
 
     /// <summary>

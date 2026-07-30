@@ -47,6 +47,10 @@ public sealed class FloorGeometry
     private const int CorridorHalfWidth = 1;
 
     private readonly bool[,] _walkable;
+
+    /// <summary>Authored flood levels, 0 where there is no water. Filled alongside
+    /// <see cref="_walkable"/> so the two grids cannot drift apart.</summary>
+    private readonly byte[,] _flood;
     private readonly Vector2I _origin;
     public int Width { get; }
     public int Height { get; }
@@ -60,6 +64,7 @@ public sealed class FloorGeometry
         Width = b.Size.X + 4;
         Height = b.Size.Y + 4;
         _walkable = new bool[Width, Height];
+        _flood = new byte[Width, Height];
 
         foreach (PlacedRoom r in floor.Rooms) CarveRoom(r);
         CarveConnections(floor);
@@ -267,6 +272,25 @@ public sealed class FloorGeometry
                 }
             }
         }
+
+        // Water last, and into its OWN grid. It does not touch _walkable: water is a cost,
+        // not a wall (see RoomTemplate.Water). Carving it after obstacles means a block
+        // standing in a channel is still solid and still dry on top, which is the pier the
+        // player is meant to stand on.
+        for (int i = 0; i < t.WaterCount; i++)
+        {
+            Rect2I w = t.WaterAt(i);
+            byte level = (byte)t.WaterFloodLevel(i);
+            for (int y = 0; y < w.Size.Y; y++)
+            {
+                for (int x = 0; x < w.Size.X; x++)
+                {
+                    int gx = p.X + w.Position.X + x;
+                    int gy = p.Y + w.Position.Y + y;
+                    if (gx >= 0 && gy >= 0 && gx < Width && gy < Height) _flood[gx, gy] = level;
+                }
+            }
+        }
     }
 
     private void CarveConnections(GeneratedFloor floor)
@@ -436,6 +460,80 @@ public sealed class FloorGeometry
             for (int x = 0; x < Width; x++)
                 mask.SetSolid(x, y, !_walkable[x, y]);
         return mask;
+    }
+
+    /// <summary>
+    /// Synthesise water into every room — debug only, for looking at the tide before a single
+    /// Wharf template exists (--flood-demo).
+    ///
+    /// It writes into <see cref="_flood"/> rather than into a built TideField, and that is the
+    /// whole point: the field and the renderer both derive from this grid, so flooding
+    /// anywhere else gives a floor that is wet to the physics and dry to the eye. Which is
+    /// exactly what the first version did.
+    ///
+    /// Bands step 1 at the bottom wall up to MaxFloodLevel, so the shoreline sweeps UP the
+    /// room as the tide comes in rather than the whole room changing at once.
+    /// </summary>
+    public void FloodDemo(GeneratedFloor floor)
+    {
+        int bands = Core.TideField.MaxFloodLevel;
+        foreach (PlacedRoom r in floor.Rooms)
+        {
+            // ToLocal, exactly as CarveRoom does. PlacedRoom.Position is in FLOOR space and
+            // the grid is offset from it by _origin — using the raw position writes the water
+            // two tiles off the room, or clean off the array, and silently does nothing.
+            Vector2I p = ToLocal(r.Position);
+            int bandHeight = Mathf.Max(1, (r.Height - 2) / (bands + 2));
+
+            for (int band = 0; band < bands; band++)
+            {
+                int yTop = p.Y + r.Height - 1 - (band + 1) * bandHeight;
+                for (int y = yTop; y < yTop + bandHeight; y++)
+                    for (int x = p.X + 1; x < p.X + r.Width - 1; x++)
+                        if (x >= 0 && y >= 0 && x < Width && y < Height && _walkable[x, y])
+                            _flood[x, y] = (byte)(band + 1);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The authored water as a <see cref="Core.TideField"/>, on the same grid as
+    /// <see cref="BuildSolidMask"/>.
+    ///
+    /// Built from a mask rather than from raw dimensions so the two grids share an origin by
+    /// construction — a water field a tile out from the wall field puts the shoreline
+    /// somewhere other than the shore, and nothing in the game would report it.
+    /// </summary>
+    public Core.TideField BuildTideField(Core.TileMask mask)
+    {
+        Core.TideField field = Core.TideField.FromMask(mask);
+        for (int y = 0; y < Height; y++)
+            for (int x = 0; x < Width; x++)
+                if (_flood[x, y] > 0) field.SetFlood(x, y, _flood[x, y]);
+        return field;
+    }
+
+    /// <summary>Water tiles at a given flood level, merged into runs for the renderer. Same
+    /// row-run batching as <see cref="BuildFloorRects"/>, for the same reason.</summary>
+    public List<Rect2> BuildWaterRects(int floodLevel)
+    {
+        var rects = new List<Rect2>();
+        for (int y = 0; y < Height; y++)
+        {
+            int runStart = -1;
+            for (int x = 0; x <= Width; x++)
+            {
+                bool water = x < Width && _flood[x, y] == floodLevel && _walkable[x, y];
+                if (water && runStart < 0) runStart = x;
+                else if (!water && runStart >= 0)
+                {
+                    Vector2 tl = TileToWorld(runStart, y);
+                    rects.Add(new Rect2(tl, new Vector2((x - runStart) * Tile, Tile)));
+                    runStart = -1;
+                }
+            }
+        }
+        return rects;
     }
 
     public List<Rect2> BuildFloorRects()

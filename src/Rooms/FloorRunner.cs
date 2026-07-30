@@ -132,6 +132,11 @@ public sealed partial class FloorRunner : Node2D
     {
         _geometry = new FloorGeometry(_floor);
 
+        // Before FloorTiles reads the grid to build its water rects, and before
+        // BuildManagers derives the TideField from it. Both come from the same array, so the
+        // demo has to write to the array — not to either of the things built from it.
+        if (_floodDemo) _geometry.FloodDemo(_floor);
+
         // Floor tiles, drawn as one batched node rather than thousands of ColorRects.
         _floorTiles = new FloorTiles { Name = "FloorTiles", Geometry = _geometry, ZIndex = -100 };
         AddChild(_floorTiles);
@@ -152,6 +157,66 @@ public sealed partial class FloorRunner : Node2D
     private FloorTiles _floorTiles = null!;
     private StaticBody2D _wallBody = null!;
 
+    // ---------------------------------------------------------------- The Tide (docs/07 §3)
+
+    /// <summary>WHERE the water is — rebuilt per floor from the authored rooms.</summary>
+    private Core.TideField _tideField = null!;
+
+    /// <summary>
+    /// WHEN the water is. Run-scoped rather than floor-scoped, and deliberately so: the cycle
+    /// is a rhythm the player learns, and a rhythm that restarts whenever the geometry does is
+    /// two different rhythms. It is Reset() once per floor at the entrance so a floor always
+    /// opens on dry ground, which is a choice about first impressions, not about ownership.
+    /// </summary>
+    private readonly Core.TideCycle _tide = new();
+
+    /// <summary>--flood-demo: synthesise water into every room so the tide can be SEEN before
+    /// a single Wharf template exists. The same trick as --corruption=, and for the same
+    /// reason — a mechanic nobody can look at is a mechanic nobody can judge.</summary>
+    private bool _floodDemo;
+
+    /// <summary>
+    /// Flood the lower half of every room in stepped bands, 4 nearest the middle down to 1 at
+    /// the bottom wall, so the shoreline sweeps up the room as the tide comes in rather than
+    /// the whole floor blinking wet. Debug only — it writes water into rooms that were never
+    /// authored to have any.
+    /// </summary>
+    /// <summary>
+    /// Advance the tide and tell everything standing in it.
+    ///
+    /// PUSHED, not polled, for the reason working agreement 3 exists: the player and the
+    /// enemies both tick as children of this node, so anything they read must already be set
+    /// when their tick runs. A system that asked the tide for its level during its own tick
+    /// would get last frame's water on some frames and this frame's on others, depending on
+    /// node order — and a one-frame error in a 20-second rhythm is exactly the kind of bug
+    /// that never reproduces.
+    ///
+    /// Skipped entirely on floors with no water, which is every floor but the Wharfs. The
+    /// cost of the tide on the Undercroft should be one boolean.
+    /// </summary>
+    private void TickTide(float dt)
+    {
+        if (!_tideField.AnyWater)
+        {
+            _player.TerrainSpeedMultiplier = 1f;
+            return;
+        }
+
+        _tide.Tick(dt);
+        float level = _tide.Level;
+
+        // docs/07 §3 — deep water slows the player to 0.7. Wading and being Drenched are
+        // separate multipliers on purpose: one is where you are, the other is what you carry
+        // out with you.
+        bool wading = _tideField.IsSubmerged(_player.GlobalPosition, level);
+        _player.TerrainSpeedMultiplier = wading ? Tune.TideWadeSpeedMultiplier : 1f;
+        if (wading) _player.Drench();
+
+        _enemies.TideLevel = level;
+        _enemies.Water = _tideField;
+        _floorTiles.TideLevel = level;
+    }
+
     private void BuildManagers()
     {
         Rect2I b = _floor.Bounds();
@@ -164,6 +229,11 @@ public sealed partial class FloorRunner : Node2D
         // Godot's physics agree about where the walls are.
         Core.TileMask walls = _geometry.BuildSolidMask();
         _walls = walls;
+
+        // The tide's WHERE. Built from the wall mask so the two grids share an origin, and
+        // rebuilt per floor because the water is authored into the rooms. The CYCLE is not
+        // rebuilt here — see BeginFloor.
+        _tideField = _geometry.BuildTideField(walls);
 
         _enemyBullets = new BulletManager { Name = nameof(BulletManager), Bounds = world, Walls = walls };
         AddChild(_enemyBullets);
@@ -290,6 +360,12 @@ public sealed partial class FloorRunner : Node2D
         BuildGeometry();
         BuildManagers();
         RewirePlayer();
+
+        // A floor opens on dry ground. The cycle itself is run-scoped (see _tide), but the
+        // first thing a player sees on the Wharfs should be water coming IN — arriving at
+        // half tide teaches them nothing about the rhythm they are about to be judged on.
+        _tide.Reset();
+        _floorTiles.TideLevel = _tide.Level;
 
         _content.FloorIndex = _run.FloorIndex;
         _content.Pickups = _pickups;
@@ -686,6 +762,8 @@ public sealed partial class FloorRunner : Node2D
         _player.IncomingDamageMultiplier = _boss is { Alive: true } boss
             ? FloorScaling.BossDamageMultiplier(_run.FloorIndex, boss.Phase)
             : FloorScaling.DamageMultiplier(_run.FloorIndex);
+
+        TickTide(dt);
 
         TickBoss(dt);
         if (_encounterActive) _director.Tick(dt, _player.GlobalPosition);
@@ -1204,6 +1282,9 @@ public sealed partial class FloorRunner : Node2D
             else if (arg.StartsWith("--room-demo=")) _roomDemo = arg["--room-demo=".Length..];
             else if (arg == "--reverie-demo") _reverieDemo = true;
             else if (arg == "--autorun") _autorun = true;
+            // Synthesise water into every room, so the tide can be looked at before a single
+            // Wharf template exists. Same purpose as --corruption=.
+            else if (arg == "--flood-demo") _floodDemo = true;
             // Start the run already Corrupted, so the thresholds can be seen without
             // Banishing forty times to reach them.
             else if (arg.StartsWith("--corruption=") &&
@@ -1765,15 +1846,74 @@ public sealed partial class FloorTiles : Node2D
     private static readonly Color YellowWall = new("4A3F1E");
     private static readonly Color YellowEdge = new("6B5A28");
 
+    /// <summary>
+    /// docs/07 §3 — the tide, 0..1, pushed each tick. Water is drawn per flood band so the
+    /// shoreline is a LINE that sweeps rather than a room that changes colour: each band is
+    /// drawn wet or dry independently, and the boundary between the last wet band and the
+    /// first dry one is the tide line the doc asks for.
+    ///
+    /// The dry seabed is still drawn, darker. A channel the player cannot see at low tide is
+    /// a channel they will be standing in when it fills.
+    /// </summary>
+    public float TideLevel
+    {
+        get => _tideLevel;
+        set
+        {
+            // Redraw only when a BAND changes state, not on every tick of a continuous
+            // float. Twenty seconds of QueueRedraw at 60Hz for a floor that looks identical
+            // is 1200 pointless retessellations of every wall on the floor.
+            if (Mathf.IsEqualApprox(_tideLevel, value)) return;
+            int before = SubmergedBands(_tideLevel);
+            _tideLevel = value;
+            if (SubmergedBands(value) != before) QueueRedraw();
+        }
+    }
+
+    private float _tideLevel;
+
+    private static int SubmergedBands(float level)
+    {
+        int n = 0;
+        for (int band = 1; band <= Core.TideField.MaxFloodLevel; band++)
+            if (level >= band / (float)Core.TideField.MaxFloodLevel) n++;
+        return n;
+    }
+
+    private static readonly Color WaterWet = new("1B3A4A");
+    private static readonly Color WaterWetEdge = new("2E6076");
+
+    /// <summary>
+    /// The seabed, drawn where water WILL be. Deliberately distinct from the floor rather
+    /// than a shade off it: docs/07 §3 sells the tide as predictable and plannable, and a
+    /// channel the player cannot see at low tide is one they will be standing in when it
+    /// fills. The first pass used a colour two points off the floor and was invisible — which
+    /// made the mechanic a surprise, which is the one thing it is specified not to be.
+    /// </summary>
+    private static readonly Color WaterDry = new("15222B");
+    private static readonly Color WaterDryEdge = new("24404E");
+
     public override void _Ready()
     {
         foreach (Rect2 r in Geometry.BuildFloorRects()) _rects.Add(r);
         foreach (Rect2 r in Geometry.BuildWallRects()) _walls.Add(r);
+        for (int band = 1; band <= Core.TideField.MaxFloodLevel; band++)
+        {
+            List<Rect2> rects = Geometry.BuildWaterRects(band);
+            _water[band - 1] = rects;
+
+            // The band's top row, precomputed so _Draw does not scan for it every frame.
+            float top = float.MaxValue;
+            foreach (Rect2 r in rects) if (r.Position.Y < top) top = r.Position.Y;
+            _waterTopY[band - 1] = top;
+        }
         QueueRedraw();
     }
 
     private readonly List<Rect2> _rects = new();
     private readonly List<Rect2> _walls = new();
+    private readonly List<Rect2>[] _water = new List<Rect2>[Core.TideField.MaxFloodLevel];
+    private readonly float[] _waterTopY = new float[Core.TideField.MaxFloodLevel];
 
     public override void _Draw()
     {
@@ -1788,10 +1928,38 @@ public sealed partial class FloorTiles : Node2D
             DrawRect(r, grid, filled: false, width: 1f);
         }
 
+        // Water over the floor, under the walls. Drawn before the walls so a pier reads as
+        // standing IN the channel rather than floating on it.
+        for (int band = 1; band <= Core.TideField.MaxFloodLevel; band++)
+        {
+            List<Rect2>? rects = _water[band - 1];
+            if (rects is null || rects.Count == 0) continue;
+
+            bool wet = IsBandWet(band);
+            foreach (Rect2 r in rects) DrawRect(r, wet ? WaterWet : WaterDry);
+
+            // The shoreline: ONE line along the top of the shallowest band that is currently
+            // wet. Edging every row of the band instead drew three parallel stripes, which
+            // reads as decoration rather than as a water's edge — docs/10 §1.3 wants a state
+            // change legible at a glance, and a glance cannot count stripes.
+            bool isShoreline = wet && !IsBandWet(band + 1);
+            if (!isShoreline && wet) continue;
+
+            float topY = _waterTopY[band - 1];
+            Color line = isShoreline ? WaterWetEdge : WaterDryEdge;
+            foreach (Rect2 r in rects)
+                if (Mathf.IsEqualApprox(r.Position.Y, topY))
+                    DrawRect(new Rect2(r.Position, new Vector2(r.Size.X, 2f)), line);
+        }
+
         foreach (Rect2 r in _walls)
         {
             DrawRect(r, wall);
             DrawRect(new Rect2(r.Position, new Vector2(r.Size.X, 2f)), edge);
         }
     }
+
+    private bool IsBandWet(int band) =>
+        band <= Core.TideField.MaxFloodLevel &&
+        _tideLevel >= band / (float)Core.TideField.MaxFloodLevel;
 }
