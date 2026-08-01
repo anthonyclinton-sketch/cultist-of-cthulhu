@@ -2,7 +2,7 @@
 
 > *A twin-stick roguelike where the deeper you go, the less of your mind you keep. You are not the hero. You are the one who read the book and kept reading.*
 
-**Engine:** Godot 4.4+ · **Language:** C# (.NET 8) · **Platform:** PC (Windows / Linux / Steam Deck) · **Perspective:** Top-down twin-stick
+**Engine:** Godot 4.7-stable mono (pinned in `.godot-version`) · **Language:** C# (.NET 8) · **Platform:** PC (Windows / Linux / Steam Deck) · **Perspective:** Top-down twin-stick
 
 ---
 
@@ -78,7 +78,8 @@ Lab (`-Lab`), or render a floor as ASCII without launching (`-ShowSeed 7`).
 | **Banish** (clear bullets, stun room) | `RMB` **tap** | LB tap | **45** |
 | **Open the Eye** (descend a band) | `RMB` **hold 0.4s** | LB hold | 25+ |
 | Swap weapon | `Q` | Y | — |
-| Interact · Reverie · Map · Pause | `E` · `TAB` · `M` · `ESC` | B · Back · RB · Start | *bound, not yet implemented* |
+| Interact · Reverie · Map | `E` · `TAB` · `M` | B · Back · RB | — |
+| Pause | `ESC` | Start | *bound, not yet implemented* |
 
 Pressing `R` **while already reloading** attempts a **Perfect Recitation** — hit the 0.16s
 window shown by the shrinking ring for half the Sanity back and +15% damage that magazine.
@@ -128,8 +129,14 @@ Gameplay numbers now load from `.tres` under `data/`, validated in CI against th
 readability contract. `src/Core/Tune.cs` still holds player-side constants and is the
 next thing to migrate.
 
-**The M1 question is not yet answered.** The build runs; nobody has played it. See
-[docs/11 §M1 Test Design](docs/11-roadmap.md) — the gate is metric 9, *does the ladder
-fire without the player deliberately descending?*
+**The M1 question is not yet answered.** The build runs and has been played by its authors;
+no external playtest has happened. See [docs/11 §M1 Test Design](docs/11-roadmap.md) — the
+gate is metric 9, *does the ladder fire without the player deliberately descending?*
 
-Pre-production. No code written. Start at [docs/11-roadmap.md](docs/11-roadmap.md) → Milestone 0.
+**M2 — Systems Slice and Floor Generation: gated.** The floor generator, Sigil Circle,
+Reverie, shop, Inscription Bench, boss 1, and two playable floors are built. 18 gates run in
+`tools/gates.ps1` and CI.
+
+**[HANDOVER.md](HANDOVER.md) is the authority on current state** — what is built, what the
+gates cover, what they cannot see, and what to build next. This Status section is a summary
+and will lag it.

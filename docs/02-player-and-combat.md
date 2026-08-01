@@ -92,7 +92,7 @@
 >
 > Left alone, Sanity would sit near the ceiling, the ladder would never fire, and **Pillar III would become decoration** — the exact failure the low-Sanity system exists to avoid.
 >
-> **The fix is structural, not a number tweak: the descent moves from the player's actions to the world.** The Lucid Ceiling (§3.3.1) is now the *primary* driver, steepened to −7 per room with a floor of 45. Late-floor rooms therefore begin in **Unsettled** and end in **Fraying** whatever the player does.
+> **The fix is structural, not a number tweak: the descent moves from the player's actions to the world.** The Lucid Ceiling (§3.3.1) is now the *primary* driver, steepened to −7 per room with a floor of **60** *(45 at the time of this decision; raised by the economy simulation — see §3.3.1)*. Late-floor rooms therefore begin in **Unsettled** and end in **Fraying** whatever the player does.
 >
 > This is thematically stronger than what it replaces. The game is about complicity and inevitability; a descent you cannot opt out of by playing well says that better than a stamina bar did. **What it costs:** the dodge no longer differentiates us from *Enter the Gungeon*. We differentiate on the Sigil Circle, on Corruption, and on the descent. Narrower, and honest.
 >
@@ -144,7 +144,7 @@ Out-of-combat regeneration refills Sanity **only up to a ceiling that falls as t
 | Reset to 100 | On entering a new floor, and in the **boss foyer** |
 | Can be exceeded by | Sanity candles, shop purchases, Unbroken Seals, certain sigils |
 
-So a 14-room floor runs 100 → 45 over its first eight rooms, and the back half of every floor is played at or near the **Unsettled** band with a genuine likelihood of ending fights in **Fraying**.
+So a 14-room floor runs 100 → 60 over its first six rooms, and the back half of every floor is played at the top of the **Unsettled** band with a genuine likelihood of ending fights in **Fraying**. The floor of 60 is the *top* of Unsettled by construction — that is what makes "begin in Unsettled and end in Fraying" true rather than aspirational.
 
 > **[DECISION — 26 Jul 2026] Under F4 this section is promoted from a supporting mechanic to the load-bearing one.** With Blink Step free, player spending can no longer carry anyone down the ladder — the ceiling is now the only reliable source of descent, which is why it was steepened. If M1 telemetry shows time-below-40-Sanity under the 25% target ([11](11-roadmap.md) metric 1), **steepen the decay before touching any other number** — this is the lever, and reload costs are the second lever, not the first.
 
@@ -156,7 +156,7 @@ Three properties this buys:
 
 **Interaction with Ascension:** the ceiling does *not* reduce max Sanity, so Ascension's −10 max penalty (§6) stacks on top of it. A player who has Ascended twice on floor 5 is operating from a ceiling of 50 against a max of 80. That compounding is intended and is the run's late-game pressure.
 
-**Tuning note:** −5/room and a floor of 50 are first-pass. The M1 telemetry metric that governs them is *time-in-band* ([11](11-roadmap.md), metric 1) — if testers spend under 25% of combat below 40 Sanity, steepen the decay before touching any other number.
+**Tuning note:** the live values are **−7/room with a floor of 60** (`Tune.LucidCeilingDecayPerRoom`, `Tune.LucidCeilingFloor`). They are no longer first-pass — the economy simulation moved both, and the FINDING above records why 45 failed. The M1 telemetry metric that governs them is *time-in-band* ([11](11-roadmap.md), metric 1) — if testers spend under 25% of combat below 40 Sanity, steepen the decay before touching any other number. **Do not lower the floor** to chase that number; that is the change the simulation already rejected.
 
 ### 3.4 Low-Sanity states — the ladder
 

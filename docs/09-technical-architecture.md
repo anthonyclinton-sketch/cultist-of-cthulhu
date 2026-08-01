@@ -1,6 +1,6 @@
 # 09 — Technical Architecture
 
-**Godot 4.4+ · .NET 8 · C# 12 · Forward+ renderer (Compatibility fallback for Steam Deck if needed)**
+**Godot 4.7-stable mono (pinned in `.godot-version`) · .NET 8 · C# 12 · Forward+ renderer (Compatibility fallback for Steam Deck if needed)**
 
 ---
 
