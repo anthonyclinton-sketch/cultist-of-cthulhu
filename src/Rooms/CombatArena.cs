@@ -146,9 +146,21 @@ public sealed partial class CombatArena : Node2D
         _player.AddChild(new CollisionShape2D { Shape = new CircleShape2D { Radius = 7f } });
         AddChild(_player);
 
-        // Three families, including the two M1 mandates: a Grimoire and a melee weapon,
-        // because both carry their own Sanity economy and are the likeliest to invalidate
-        // it (docs/03 §2 Family IV and V).
+        // --weapons=a,b,c turns the arena into a weapon bench (docs/09 §10). Without it, the
+        // default three: one per family, including the two M1 mandates — a Grimoire and a
+        // melee weapon, because both carry their own Sanity economy and are the likeliest to
+        // invalidate it (docs/03 §2 Family IV and V).
+        string spec = "";
+        foreach (string arg in OS.GetCmdlineArgs())
+            if (arg.StartsWith("--weapons=")) spec = arg["--weapons=".Length..];
+
+        List<WeaponData> loadout = WeaponPool.ResolveLoadout(spec);
+        if (loadout.Count > 0)
+        {
+            foreach (WeaponData w in loadout) _player.GiveWeapon(w);
+            return;
+        }
+
         LoadWeapon("res://data/weapons/webley_mk_vi.tres");
         LoadWeapon("res://data/weapons/cantrip_withering.tres");
         LoadWeapon("res://data/weapons/sacrificial_kris.tres");
