@@ -62,7 +62,7 @@ This file is the one-time sweep. It should be re-run at the end of every milesto
 | No in-combat regen | ✅ | |
 | **Sanity candles** (+25, pierce the ceiling) | 🔜 | Needs pickups. The *only* counter-play to the descent |
 | Room clear +20 | ✅ | |
-| Lucid Ceiling — −7/room, floor 45 | ✅ | |
+| Lucid Ceiling — −7/room, floor 60 | ✅ | Floor was 45 when this row was written; the economy sim raised it to 60 ([11](11-roadmap.md) §M1) |
 | Open the Eye | ✅ | |
 | Band hysteresis, halved refunds below 40 | ✅ | |
 
@@ -220,7 +220,11 @@ Same legend as above.
 | Third option at Corruption ≥3 for +1 Corruption | ✅ | Rolled at inflated Corruption so it genuinely reads a tier up |
 | Floor tier table + Corruption tier shift (20/45/70%) | ✅ | |
 | Shop: 2 sigils, bench, consumables, reroll, bowl | ✅ | |
-| **Shop: weapon slot** | ❌ | Needs a weapon-drop/swap flow that does not exist yet |
+| **Shop: weapon slot** | ✅ *(30 Jul)* | `WeaponPool` + `InteractableKind.WeaponOffer`. Priced 100–320 × floor scale, gated on the absolute band |
+| **Weapons in chests (C and up)** | ✅ *(30 Jul)* | 33% of Brass-or-better chests. Degrades to the sigil roll when the loadout cannot receive one, so a key is never spent for a refusal |
+| **A fourth weapon forces a swap** (docs/03 §1.1) | ✅ *(30 Jul)* | Replaces the ACTIVE weapon, same convention the bench uses. Bound Arms are refused |
+| **The swap states what it destroys** (docs/03 §3.4) | ⚠️ | The prompt names the weapon and its Inscription count and refreshes as Q cycles. There is no modal — the prompt is the confirmation |
+| **Inscription transfer at the bench, 60g each** | ❌ | Still unbuilt, and now it is load-bearing: a swap is currently a total loss of that weapon's Inscriptions |
 | **Shop: The Odd Item** | ❌ | |
 | **Stealing from Gaunt** | ❌ | Gaunt is not an entity — the stall is furniture |
 | Chests: tiered, key-gated | ✅ | Rust free, gilt 1 key; behind Med/Hard rooms and in secrets |
@@ -286,3 +290,33 @@ Same legend as above.
 - **The Reverie's diff panel is not a diff.** §7 asks for a preview of what a placement
   gains and loses; the player currently sees only the state after committing.
 - **No save/load.** A run ends when the process does.
+
+---
+
+## Weapon acquisition — 30 July 2026
+
+The sixth "specified, believed present, absent", and the largest: five weapons were
+authored and content-validated, three were handed out by a hardcoded array at run start,
+and **the other two were reachable by no means at all.** `Interactable.Weapon` was a field
+with no writer, the drop tables held no weapons, and Gaunt's stall stocked every slot
+docs/08 §2.1 lists except slot 3.
+
+**The thing underneath it, which the write-up missed.** The startup array handed out the
+Webley, the Cantrip and the Kris — the Antiquarian's, the Dreamer's and the Fisherman's
+Bound Arms (docs/08 §7). docs/03 §1.1 gives a run **one**. Bound Arms cannot be dropped, so
+three of them is not merely off-spec: it is a **full loadout with no slot a found weapon
+could ever enter.** Wiring the shop slot without fixing that would have produced an offer
+that always refused, and the whole feature would have read as broken rather than absent.
+The run now starts with the Webley alone, which also makes the loadout agree with the
+Antiquarian Heart Sigil the run was already using. The Grimoire and the melee weapon are
+still carried by `gates.ps1 -Arena`, which is where docs/11's M1 mandate for them lives.
+
+**Gated, and every assertion proven to fail.** `gates.ps1 -Weapons`. Three sabotages:
+unregistering a weapon (red by name), removing the Bound Arm protection (red), and removing
+the shop's weapon slot (the autorun's end-to-end assertion, red).
+
+**The gate that would have caught the original bug is the directory scan**, not the pool
+walk — `TestEveryWeaponIsReachable` iterates the pool, so a weapon that was never registered
+is unreachable *and invisible to the test*. Reaching past the code to the authored content
+is the only version of that check that works. Worth copying wherever else the project has a
+hand-maintained list of `.tres` paths.

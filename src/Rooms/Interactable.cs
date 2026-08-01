@@ -14,6 +14,10 @@ public enum InteractableKind
     Shrine,
     /// <summary>Gaunt's stock: a sigil, a consumable, or a key.</summary>
     ShopItem,
+    /// <summary>A weapon on offer — Gaunt's slot 3, or a chest that rolled one (docs/08
+    /// §2.1, §4). Separate from <see cref="ShopItem"/> because taking a weapon may have to
+    /// DISPLACE one, and that displacement is the decision.</summary>
+    WeaponOffer,
     /// <summary>An Inscription offer at the bench (docs/08 §2.2).</summary>
     Inscription,
     /// <summary>The Dissolution Bowl — sell a Reliquary sigil for gold (docs/04 §6).</summary>

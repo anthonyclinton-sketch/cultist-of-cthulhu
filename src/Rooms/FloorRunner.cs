@@ -372,18 +372,36 @@ public sealed partial class FloorRunner : Node2D
     {
         if (_run.Weapons.Count > 0) return;
 
-        foreach (string path in new[]
-                 {
-                     "res://data/weapons/webley_mk_vi.tres",
-                     "res://data/weapons/cantrip_withering.tres",
-                     "res://data/weapons/sacrificial_kris.tres",
-                 })
+        // ONE Bound Arm, not three.
+        //
+        // This used to hand out the Webley, the Cantrip and the Kris — which are the
+        // Antiquarian's, the Dreamer's and the Fisherman's Bound Arms respectively
+        // (docs/08 §7). docs/03 §1.1 gives a run *one* Bound Arm and two free slots, and
+        // docs/03 §4 expects floor 1 to be "Bound Arm + 1 found weapon".
+        //
+        // Three was not merely off-spec, it was the thing that made weapons unacquirable:
+        // Bound Arms cannot be dropped, so a full loadout of them left no slot a found
+        // weapon could ever occupy. Wiring the acquisition loop without fixing this would
+        // have produced a shop slot that always refused.
+        //
+        // The Antiquarian is the right one to keep: this run already uses her Heart Sigil
+        // below (heart_steady_pulse), so the loadout and the Circle now agree about whose
+        // run this is. The Cantrip and the Kris are still carried by the M1 combat slice
+        // (`gates.ps1 -Arena`), which is where docs/11's "must include one Grimoire and one
+        // melee weapon" mandate actually lives — see the comment in CombatArena.
+        // --weapons=a,b,c overrides the starter, so a weapon can be taken into a REAL run
+        // without earning 210 gold for it first (docs/09 §10). The acquisition loop still
+        // works normally on top of whatever this hands out — including the swap, if the
+        // loadout fills all three slots.
+        List<WeaponData> loadout = WeaponPool.ResolveLoadout(_weaponSpec);
+        if (loadout.Count == 0)
         {
-            var data = GD.Load<WeaponData>(path);
-            if (data is null) continue;
-            var cw = new Meta.CarriedWeapon { Data = data, Reserve = data.TotalReserveRounds };
-            _run.Weapons.Add(cw);
+            var data = GD.Load<WeaponData>("res://data/weapons/webley_mk_vi.tres");
+            if (data is not null) loadout.Add(data);
         }
+
+        foreach (WeaponData w in loadout)
+            _run.Weapons.Add(new Meta.CarriedWeapon { Data = w, Reserve = w.TotalReserveRounds });
 
         // docs/04 §2.2, §2.3 — a fixed Heart, and three ley lines whose TYPES are rolled
         // per RUN. Rolling them per run is what stops an optimal layout being copied
@@ -717,6 +735,22 @@ public sealed partial class FloorRunner : Node2D
         Check(spawned > 0,
               $"the rooms held enemies ({spawned} spawned, " +
               $"{_player.DebugHitsIgnored} hits absorbed) — invulnerable, not unopposed");
+
+        // The end-to-end half of the weapon loop. WeaponTest proves the pool, the holder and
+        // the prices in isolation; only a played run proves a weapon is ever put in front of
+        // the player. Two finished weapons were unreachable for a milestone precisely because
+        // every check was of the isolated kind.
+        //
+        // OFFERED, not taken — see RoomContent.WeaponOffersMade for why acquisition would be
+        // flaky here. Counted PER STALL, because docs/08 §2.1 only guarantees Gaunt from
+        // floor 2 and a bare "a weapon was offered" failed a healthy one-floor run that rolled
+        // no shop. That is the third time this project has written an assertion whose
+        // expectation held on the seeds it was developed against; it is worth assuming the
+        // fourth is nearby.
+        int stalls = _content?.ShopsPopulated ?? 0;
+        int offers = _content?.WeaponOffersMade ?? 0;
+        Check(offers >= stalls,
+              $"every stall stocked a weapon ({offers} offers across {stalls} stall(s))");
 
         // The whole reason for a RunState. If any of this resets at a floor boundary the
         // player silently loses their run, and nothing else in the project would notice.
@@ -1577,6 +1611,7 @@ public sealed partial class FloorRunner : Node2D
     private string _roomDemo = "";
     private bool _reverieDemo;
     private float _startingCorruption;
+    private string _weaponSpec = "";
     private int _frameCount;
 
     private void ParseScreenshotArgs()
@@ -1593,6 +1628,8 @@ public sealed partial class FloorRunner : Node2D
             else if (arg == "--combat-demo") _combatDemo = true;
             else if (arg.StartsWith("--room-demo=")) _roomDemo = arg["--room-demo=".Length..];
             else if (arg == "--reverie-demo") _reverieDemo = true;
+            // The weapon bench (docs/09 §10). Replaces the starting loadout outright.
+            else if (arg.StartsWith("--weapons=")) _weaponSpec = arg["--weapons=".Length..];
             else if (arg == "--autorun") _autorun = true;
             // Synthesise water into every room, so the tide can be looked at before a single
             // Wharf template exists. Same purpose as --corruption=.

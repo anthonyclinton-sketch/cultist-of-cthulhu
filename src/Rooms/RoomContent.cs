@@ -162,6 +162,7 @@ public sealed partial class RoomContent : Node2D
     /// </summary>
     private void PopulateShop(Rect2 interior, Rng rng)
     {
+        ShopsPopulated++;
         Vector2 c = _centre;
         float priceMult = Player.Circle.Effects.ShopPriceMultiplier;
         float floorScale = InscriptionData.FloorScale(FloorIndex);
@@ -184,6 +185,25 @@ public sealed partial class RoomContent : Node2D
                 Title = $"Buy {s.DisplayName} [{s.Tier}]",
                 Detail = s.RulesText,
                 Tint = TierTint(s.Tier),
+            });
+        }
+
+        // --- Slot 3: a weapon (docs/08 §2.1). Absent from the stall until now, which meant
+        // the shop could sell you an upgrade for a weapon but never a weapon.
+        WeaponData? gun = WeaponPool.Draw(FloorIndex, Player.Corruption, rng, CarriedWeaponData());
+        if (gun is not null)
+        {
+            WeaponOffersMade++;
+            _items.Add(new Interactable
+            {
+                Kind = InteractableKind.WeaponOffer,
+                Position = c + new Vector2(20f, -70f),
+                Weapon = gun,
+                GoldCost = WeaponPool.Price(gun, FloorIndex, priceMult),
+                CorruptionCost = gun.CorruptionOnPickup,
+                Title = $"Buy {gun.DisplayName} [{gun.Tier}]",
+                Detail = WeaponSummary(gun),
+                Tint = new Color("FFB347"),
             });
         }
 
@@ -403,6 +423,10 @@ public sealed partial class RoomContent : Node2D
             _focus = it;
         }
 
+        // A weapon offer's cost depends on what the player is holding, and that changes under
+        // them when they press Q. Refreshed while focused so the prompt cannot go stale.
+        if (_focus is { Kind: InteractableKind.WeaponOffer }) RefreshWeaponPrompt(_focus);
+
         if (_focus is not null && Input.IsActionJustPressed("interact")) Activate(_focus);
 
         QueueRedraw();
@@ -422,6 +446,11 @@ public sealed partial class RoomContent : Node2D
         {
             if (it.Consumed) continue;
             if (it.KeyCost > Player.Keys || it.GoldCost > Player.Gold) continue;
+
+            // A weapon offer the loadout cannot receive would flash a refusal and leave the
+            // item unconsumed — and the harness would report it as "took something" and move
+            // on. Skipping it keeps the return value meaning what it says.
+            if (it.Kind == InteractableKind.WeaponOffer && !CanTakeWeapon()) continue;
 
             Activate(it);
             return true;
@@ -449,6 +478,7 @@ public sealed partial class RoomContent : Node2D
             case InteractableKind.Chest: OpenChest(it); break;
             case InteractableKind.Shrine: UseShrine(it); break;
             case InteractableKind.ShopItem: Buy(it); break;
+            case InteractableKind.WeaponOffer: BuyWeapon(it); break;
             case InteractableKind.Inscription: Etch(it); break;
             case InteractableKind.DissolutionBowl: Dissolve(it); break;
             case InteractableKind.Reroll: Reroll(it); break;
@@ -493,6 +523,131 @@ public sealed partial class RoomContent : Node2D
         GrantSigil(it.Sigil);
     }
 
+    // ---------------------------------------------------------------- Weapons
+
+    /// <summary>Everything the player is already carrying, so a draw does not offer a
+    /// duplicate of a weapon in their hands.</summary>
+    private List<WeaponData> CarriedWeaponData()
+    {
+        var list = new List<WeaponData>(Player.Weapons.Count);
+        foreach (Weapon w in Player.Weapons.Weapons) list.Add(w.Data);
+        return list;
+    }
+
+    /// <summary>
+    /// Whether a weapon can be received at all right now.
+    ///
+    /// False only in one case: every slot is full AND the active weapon is a Bound Arm,
+    /// which docs/03 §1.1 says cannot be dropped. The player's way out is Q — which is why
+    /// the refusal says so rather than just saying no.
+    /// </summary>
+    private bool CanTakeWeapon()
+    {
+        if (Player.Weapons.Count < WeaponHolder.MaxSlots) return true;
+        return !Player.Weapons.Active.Data.IsBoundArm;
+    }
+
+    /// <summary>
+    /// Take a weapon, displacing the ACTIVE one if all three slots are full.
+    ///
+    /// Displacing the active weapon rather than opening a chooser is the same convention the
+    /// Inscription Bench already uses — it etches onto the active weapon and tells the player
+    /// Q swaps. One convention for "which of your weapons does this apply to" is worth more
+    /// than a bespoke chooser for each, and it needs no UI that does not exist.
+    ///
+    /// docs/03 §3.4 requires that losing a weapon's Inscriptions be CONFIRMED, not merely
+    /// suffered. There is no modal system, so the confirmation is the prompt: <see
+    /// cref="RefreshWeaponPrompt"/> keeps the offer's detail line naming the weapon that will
+    /// be displaced and the Inscriptions that will die with it, and it re-runs as the player
+    /// cycles with Q. That keeps docs/08 §5's rule — state the exact cost before commitment —
+    /// literally true for the one transaction whose cost is not a number.
+    /// </summary>
+    private bool GrantWeapon(WeaponData data)
+    {
+        if (Player.Weapons.Count < WeaponHolder.MaxSlots)
+        {
+            Player.GiveWeapon(data);
+            Flash($"{data.DisplayName} taken.");
+            return true;
+        }
+
+        Weapon active = Player.Weapons.Active;
+        if (active.Data.IsBoundArm)
+        {
+            Flash($"{active.Data.DisplayName} is a Bound Arm and cannot be dropped. Q swaps weapon.");
+            return false;
+        }
+
+        int lostInscriptions = active.Inscriptions.Count;
+        if (!Player.Weapons.ReplaceActive(data)) return false;
+
+        Flash(lostInscriptions > 0
+                  ? $"{data.DisplayName} taken. {active.Data.DisplayName} and its " +
+                    $"{lostInscriptions} inscription{(lostInscriptions > 1 ? "s" : "")} are gone."
+                  : $"{data.DisplayName} taken, replacing {active.Data.DisplayName}.");
+        return true;
+    }
+
+    private void BuyWeapon(Interactable it)
+    {
+        if (it.Weapon is null) return;
+
+        // Checked before payment. A shop that took 240 gold and then refused the weapon
+        // because every slot held a Bound Arm would be the worst bug in the economy.
+        if (!CanTakeWeapon())
+        {
+            Flash($"{Player.Weapons.Active.Data.DisplayName} is a Bound Arm and cannot be " +
+                  "dropped. Q swaps weapon.");
+            return;
+        }
+
+        if (!Pay(it)) return;
+        if (!GrantWeapon(it.Weapon)) return;
+        it.Consumed = true;
+    }
+
+    /// <summary>
+    /// Keep a weapon offer's detail line honest about what taking it costs.
+    ///
+    /// Recomputed while the player stands at the offer, because the answer changes when they
+    /// press Q. A line authored at population time would name whichever weapon happened to be
+    /// active when the room was first entered, which is the kind of stale prompt that makes a
+    /// player stop trusting prompts.
+    /// </summary>
+    private void RefreshWeaponPrompt(Interactable it)
+    {
+        if (it.Weapon is null) return;
+
+        if (Player.Weapons.Count < WeaponHolder.MaxSlots)
+        {
+            it.Detail = $"{WeaponSummary(it.Weapon)}  —  slot {Player.Weapons.Count + 1} of " +
+                        $"{WeaponHolder.MaxSlots} is free.";
+            return;
+        }
+
+        Weapon active = Player.Weapons.Active;
+        if (active.Data.IsBoundArm)
+        {
+            it.Detail = $"{WeaponSummary(it.Weapon)}  —  {active.Data.DisplayName} is a Bound " +
+                        "Arm. Q to select a different weapon to replace.";
+            return;
+        }
+
+        int ins = active.Inscriptions.Count;
+        string loses = ins > 0
+            ? $" and its {ins} inscription{(ins > 1 ? "s" : "")}"
+            : "";
+        it.Detail = $"{WeaponSummary(it.Weapon)}  —  REPLACES {active.Data.DisplayName}{loses}. " +
+                    "Q changes which.";
+    }
+
+    /// <summary>The stat line a player needs to judge an offer. Reload weight is named
+    /// explicitly because post-F4 it is the weapon's Sanity identity (docs/03 §1.3).</summary>
+    private static string WeaponSummary(WeaponData w)
+        => $"{w.Damage:0.#} dmg x{w.ProjectilesPerShot}  {w.FireRate:0.#}/s  " +
+           $"mag {w.MagazineSize}  recite {w.SanityCostToReload:0} Sanity  " +
+           $"{w.InscriptionSlots} slot{(w.InscriptionSlots > 1 ? "s" : "")}";
+
     private void OpenChest(Interactable it)
     {
         if (!Pay(it)) return;
@@ -507,6 +662,19 @@ public sealed partial class RoomContent : Node2D
             return;
         }
 
+        // docs/08 §4 — everything from Brass upward may hold a weapon rather than a sigil.
+        // Rust chests may not; their stated contents are gold, ammo and a D sigil.
+        //
+        // Checked BEFORE rolling, and only taken when the weapon can actually be received.
+        // A chest that consumed a key and then refused the weapon because every slot held a
+        // Bound Arm would be charging for nothing — so an unreceivable weapon degrades to
+        // the sigil roll rather than to a refusal.
+        if (it.Amount >= 1 && rng.Chance(WeaponChestChance) && CanTakeWeapon())
+        {
+            WeaponData? gun = WeaponPool.Draw(FloorIndex, Player.Corruption, rng, CarriedWeaponData());
+            if (gun is not null) { GrantWeapon(gun); return; }
+        }
+
         SigilData? s = SigilPool.Draw(FloorIndex, Player.Corruption, rng, null);
         if (s is not null) { GrantSigil(s); return; }
 
@@ -514,6 +682,17 @@ public sealed partial class RoomContent : Node2D
         Player.AddGold(gold);
         Flash($"+{gold} gold.");
     }
+
+    /// <summary>
+    /// How often a Brass-or-better chest holds a weapon instead of a sigil.
+    ///
+    /// docs/08 §4 lists both as possible contents for every tier from C up without giving a
+    /// split. A third is deliberate rather than half: sigils are the build (Pillar II) and
+    /// arrive from more sources, and a chest that is as likely to be a weapon as a sigil
+    /// makes the Circle's supply — which docs/08 §8 asks to fill at the 10th percentile of
+    /// drop luck — noticeably thinner.
+    /// </summary>
+    private const float WeaponChestChance = 0.33f;
 
     private void UseShrine(Interactable it)
     {
@@ -563,6 +742,31 @@ public sealed partial class RoomContent : Node2D
 
     /// <summary>Set by the Ledger Stone. Read by the minimap.</summary>
     public bool RevealFloor { get; private set; }
+
+    /// <summary>
+    /// Weapon offers this RUN has laid out, across every floor. The autorun asserts on it.
+    ///
+    /// Counts offers MADE, not weapons taken. Taking one depends on the harness's gold, and
+    /// the harness buys the cheapest affordable thing first — so it frequently arrives at the
+    /// stall's most expensive slot broke. An assertion on acquisition would fail on a healthy
+    /// build for a reason that has nothing to do with the acquisition loop, which is the same
+    /// flakiness "the harness was actually shot at" had.
+    ///
+    /// Deliberately NOT reset by <see cref="ResetForFloor"/>: it is a run-scoped count, and a
+    /// per-floor one would assert that every floor stocks a weapon, which docs/08 §2.1 does
+    /// not promise on floor 1.
+    /// </summary>
+    public int WeaponOffersMade { get; private set; }
+
+    /// <summary>
+    /// Stalls laid out this run. The denominator for <see cref="WeaponOffersMade"/>.
+    ///
+    /// Needed because docs/08 §2.1 only guarantees Gaunt from floor 2 — he is ~70% on floor
+    /// 1. A bare "a weapon was offered" assertion therefore fails on a healthy single-floor
+    /// run that happened to roll no shop, which is the same flakiness the autorun's own
+    /// comments record twice. Asserting one offer PER STALL is both non-flaky and stronger.
+    /// </summary>
+    public int ShopsPopulated { get; private set; }
 
     private void Buy(Interactable it)
     {

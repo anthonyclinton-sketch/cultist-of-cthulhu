@@ -42,6 +42,32 @@ public sealed class WeaponHolder
         return w;
     }
 
+    /// <summary>
+    /// Swap the active weapon for a new one, in place.
+    ///
+    /// This is what makes a fourth weapon possible at all (docs/03 §1.1: "a fourth pickup
+    /// forces a swap prompt"). It replaces IN PLACE rather than removing and appending so
+    /// the new weapon lands in the slot the player was already looking at — an acquisition
+    /// that silently reorders the loadout makes the next Q press do something different from
+    /// what the player learned.
+    ///
+    /// Refuses to drop a Bound Arm (docs/03 §1.1 — it cannot be dropped). The caller checks
+    /// this too, so it can say *why*; the check is here as well because it is an invariant of
+    /// the loadout, not of the shop.
+    ///
+    /// The replaced weapon's Inscriptions go with it. docs/03 §3.4 makes that the rule and
+    /// the review's transfer affordance (§3.1, 60 gold per Inscription) is the escape hatch —
+    /// which is not built, so for now a swap is a genuine loss and the prompt must say so.
+    /// </summary>
+    public bool ReplaceActive(WeaponData data)
+    {
+        if (_weapons.Count == 0) return Add(data) is not null;
+        if (_weapons[_active].Data.IsBoundArm) return false;
+
+        _weapons[_active] = new Weapon(data);
+        return true;
+    }
+
     /// <summary>Drop everything. Used when a floor restores a run's loadout.</summary>
     public void Clear()
     {

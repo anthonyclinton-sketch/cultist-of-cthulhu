@@ -55,6 +55,11 @@ pwsh ./tools/gates.ps1 -Floor -Autorun        # WATCH the run play itself
 pwsh ./tools/gates.ps1 -Arena                 # the fixed-arena combat slice
 pwsh ./tools/gates.ps1 -ShowSeed 7            # render a floor as ASCII
 pwsh ./tools/gates.ps1 -Floor -MeteredDodge   # Build B, the M1 control arm
+pwsh ./tools/gates.ps1 -Weapons               # the weapon acquisition gate, on its own
+
+# THE WEAPON BENCH (docs/09 §10). Stems or display names, max 3, either scene.
+pwsh ./tools/gates.ps1 -Arena -Loadout nitro_express,trench_sweeper
+pwsh ./tools/gates.ps1 -Floor -Loadout "Nitro Express"
 ```
 
 Controls: **WASD** move · **LMB** fire · **SPACE** dash · **R** recite · **RMB** banish ·
@@ -141,11 +146,12 @@ Corruption thresholds, the Dread Budget with kill-triggered waves.
 
 ## 4. The gates
 
-18 gates in `tools/gates.ps1` and `.github/workflows/gates.yml`. **All currently green.**
+19 gates in `tools/gates.ps1` and `.github/workflows/gates.yml`. **All currently green.**
 
 | Gate | Asserts |
 |---|---|
 | Content validation | Every `.tres` passes `Validate()`, plus sigil-pool rules |
+| **Weapon acquisition** | Every authored weapon is registered AND drawable; Bound Arms never loot and never dropped; the swap is in place; prices in band |
 | Ascension invariants | Cannot be farmed; spend-to-zero ≡ drain-to-zero |
 | Banish | `ClearRadius` leaves no survivors; cost gates on band |
 | **Autorun** | A whole run played headlessly: every room, the boss, the summary |
@@ -194,6 +200,19 @@ build on seed 7, and had to be replaced twice before landing on spawn counts.
 swim multiplier against `Tune`, so setting that constant to 1 makes it print
 `x1.00 (want x1.00)` and pass. Only the absolute check beside it catches a bad number.
 
+**An assertion that walks the code cannot see what the code forgot.** The weapon gate's
+"every weapon is reachable" test iterates `WeaponPool` — so a weapon authored and never
+registered is unreachable *and invisible to the test*, which is exactly how two finished
+weapons survived a milestone. The check that catches it scans `data/weapons` on disk and
+compares. Anywhere the project keeps a hand-maintained list of `.tres` paths, the useful
+assertion reaches past the list to the directory.
+
+**A fourth flaky assertion, caught by the suite the same session it was written.** "A weapon
+was offered during the run" failed the one-floor autorun on a healthy build, because docs/08
+§2.1 only guarantees Gaunt from floor 2 and that seed rolled no stall. Restated as *offers ≥
+stalls*, which is both non-flaky and stronger. Assume the fifth is nearby: the pattern every
+time has been an expectation that held on the seeds it was developed against.
+
 ---
 
 ## 5. What to build next
@@ -213,27 +232,39 @@ floor whose set is incomplete, which is all of them.
 **The Ferryman of the Manuxet** (docs/05 §7) — floor 2's Warden, offering passage for +2
 Corruption or a fight. Not built; no Warden system exists at all.
 
-### 5.2 Weapons — nothing can be acquired, and most of the roster is not expressible
+### 5.2 Weapons — the loop is now wired; the roster is still not expressible
 
-Two separate problems, and the first is the one a player hits.
+**The acquisition loop is built and gated** (`gates.ps1 -Weapons`). Trench Sweeper and Nitro
+Express are reachable. What was there before is recorded in `docs/AUDIT-spec-vs-code.md`
+§ "Weapon acquisition"; the short version is that it was the sixth "specified, believed
+present, absent", and the bug underneath it was worse than the missing writer:
 
-**Nothing grants a weapon except the startup array.** Five weapons are authored; three are
-handed out at run start by a hardcoded array of paths in `FloorRunner.LoadContent`. The other
-two — **Trench Sweeper** and **Nitro Express** — are finished, content-validated, and
-**unreachable by any means**. There is no acquisition path at all:
+**The run started with THREE Bound Arms** — the Webley, the Cantrip and the Kris, which are
+the Antiquarian's, the Dreamer's and the Fisherman's respectively (docs/08 §7). docs/03 §1.1
+gives a run **one**. Bound Arms cannot be dropped, so the loadout was full with no slot a
+found weapon could ever enter. Wiring the shop slot without fixing that would have shipped an
+offer that always refused. The run now starts with the Webley alone, which also makes the
+loadout agree with the Antiquarian Heart Sigil the run was already using. `-Arena` still
+carries the Grimoire and the melee weapon, which is where docs/11's M1 mandate for them lives.
 
-- `Interactable.Weapon` is a field with **no writer**. Grep `\.Weapon = ` and it returns
-  nothing. The pickup type is scaffolding.
-- **Gaunt's stall stocks sigils, inscriptions, consumables, a bench, a reroll and the
-  Dissolution Bowl** — no weapons. docs/08 §2.1 does not promise weapons in the shop, so this
-  is arguably correct; reward rooms and chests are the natural home.
-- **Drop tables contain no weapons.**
+What exists now: `WeaponPool` (registration, floor/Corruption tier draw, pricing),
+`InteractableKind.WeaponOffer`, Gaunt's slot 3 at 100–320 × floor scale, weapons in Brass-or-
+better chests at 33%, and `WeaponHolder.ReplaceActive` — a full loadout displaces the **active**
+weapon, the same convention the Inscription Bench uses, and refuses to drop a Bound Arm.
 
-This is the **sixth** "specified, believed present, absent" in this project, and the largest —
-the other five were a field or a routing rule; this is a whole loop. Wiring it is small:
-`Interactable` has the field, `RoomContent` already knows how to price and display an offer,
-and `PlayerController.GiveWeapon` exists and is called only from startup. **Do this before
-authoring anything**, or every weapon added lands in the same unreachable pile.
+**Three things to know before building on it:**
+
+- **A swap destroys that weapon's Inscriptions**, and the prompt says so as Q cycles. docs/03
+  §3.1's transfer affordance (60 gold each, at the bench) is the intended escape hatch and is
+  **still unbuilt** — it is now load-bearing rather than a nicety, because the review added it
+  specifically to resolve Inscriptions-vs-rotation and that conflict is now live.
+- **The acquirable pool is two weapons deep.** docs/03 §2's *Miskatonic Service Rifle*, *The
+  Weeping Colt* and *Whaling Iron* are pure data against systems that already exist — three
+  `.tres` files would more than double it. (Hold *Whaling Iron* until the Family V cut
+  decision, §5.2 below.)
+- **Reward rooms deliberately do not offer weapons.** docs/08 §3 gives them a choice of two
+  sigils and docs/03 §3.1 gives them a 20% Inscription roll; neither mentions weapons. The
+  earlier note in this file suggesting reward rooms was not grounded in the docs.
 
 **The roster is written against a weapon system that does not exist.** docs/03 plans **40
 weapons** (4 starter, 8 D/C, 14 C/B, 10 A, 4 S). `WeaponData` is a flat parameter block and

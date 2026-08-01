@@ -32,6 +32,12 @@ param(
     [int]$StartFloor = 1,
     [double]$Corruption = 0,
     [switch]$FloodDemo,
+    [switch]$Weapons,
+    # The weapon bench (docs/09 §10). Comma-separated file stems or display names, e.g.
+    #   -Arena  -Loadout nitro_express,trench_sweeper
+    #   -Floor  -Loadout "Nitro Express"
+    # Replaces the starting loadout outright, in either scene. Max 3 (docs/03 §1.1).
+    [string]$Loadout = "",
     [switch]$SkipBuild
 )
 
@@ -86,6 +92,8 @@ if ($Floor) {
     # five minutes of floor 1 every time. The run still ENDS on the deepest floor asked for,
     # so -StartFloor 2 alone is a one-floor run that happens to be floor 2.
     if ($StartFloor -gt 1) { $extra += "--start-floor=$StartFloor" }
+    # The weapon bench, in a real run. The acquisition loop still runs on top of it.
+    if ($Loadout) { $extra += "--weapons=$Loadout" }
     & $godot --path $root res://scenes/debug/FloorRunner.tscn --seed $Seed @extra
     exit $LASTEXITCODE
 }
@@ -93,10 +101,17 @@ if ($Play)  { & $godot --path $root res://scenes/debug/StressTest.tscn  --seed $
 if ($Arena) {
     # -MeteredDodge runs Build B, the M1 control arm (docs/11 §M1 test design).
     $extra = if ($MeteredDodge) { @("--metered-dodge") } else { @() }
+    # -Loadout turns the fixed combat slice into a weapon bench. Without it the arena keeps
+    # its default three, which carry docs/11's M1 Grimoire-and-melee mandate.
+    if ($Loadout) { $extra += "--weapons=$Loadout" }
     & $godot --path $root res://scenes/debug/CombatArena.tscn --seed $Seed @extra
     exit $LASTEXITCODE
 }
 if ($Lab)   { & $godot --path $root res://scenes/debug/PatternLab.tscn  --seed $Seed; exit $LASTEXITCODE }
+if ($Weapons) {
+    & $godot --headless --path $root res://scenes/debug/WeaponTest.tscn
+    exit $LASTEXITCODE
+}
 
 if ($ShowSeed) {
     # The Generation Visualiser (docs/06 §10). Note the arg form is --show-seed=N with an
@@ -119,6 +134,12 @@ if ($LASTEXITCODE -ne 0) { $failed += "ascension invariants" }
 Write-Host "`n### BANISH ###"
 & $godot --headless --path $root res://scenes/debug/BanishTest.tscn
 if ($LASTEXITCODE -ne 0) { $failed += "banish" }
+
+# The first gate that asks whether authored content can be OBTAINED, rather than whether it
+# is valid. Two finished weapons shipped unreachable for a milestone under a green suite.
+Write-Host "`n### WEAPON ACQUISITION ###"
+& $godot --headless --path $root res://scenes/debug/WeaponTest.tscn
+if ($LASTEXITCODE -ne 0) { $failed += "weapon acquisition" }
 
 # A run, played start to finish. The only gate that reaches a boss, completes a floor,
 # carries a build down a stair and ends a run — none of which any other gate can even get
